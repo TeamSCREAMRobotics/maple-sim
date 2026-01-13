@@ -48,4 +48,4 @@ bin/
 .DS_Store
 
 /javadocs/**
-/.idea
+.idea/*

@@ -39,7 +39,8 @@ public abstract class Goal implements SimulatedArena.Simulatable {
     /**
      *
      *
-     * <h2>Reverses a rotation so that the returned rotation points directly "behind" the original rotation.</h2>
+     * <h2>Reverses a rotation so that the returned rotation points directly
+     * "behind" the original rotation.</h2>
      *
      * @param toFlip The rotation to be flipped.
      * @return The flipped rotation.
@@ -51,16 +52,16 @@ public abstract class Goal implements SimulatedArena.Simulatable {
     /**
      *
      *
-     * <h2>Creates a goal object </h2>
+     * <h2>Creates a goal object</h2>
      *
-     * @param arena The host arena of this goal
-     * @param xDimension The x dimension of the default box collider.
-     * @param yDimension The y dimension of the default box collider.
-     * @param height The height or z dimension of the default box collider.
+     * @param arena         The host arena of this goal
+     * @param xDimension    The x dimension of the default box collider.
+     * @param yDimension    The y dimension of the default box collider.
+     * @param height        The height or z dimension of the default box collider.
      * @param gamePieceType the string game piece type to be handled by this goal.
-     * @param position The position of this goal.
-     * @param isBlue Wether this is a blue goal or a red one.
-     * @param max How many pieces can be scored in this goal.
+     * @param position      The position of this goal.
+     * @param isBlue        Wether this is a blue goal or a red one.
+     * @param max           How many pieces can be scored in this goal.
      */
     public Goal(
             SimulatedArena arena,
@@ -89,13 +90,13 @@ public abstract class Goal implements SimulatedArena.Simulatable {
      *
      * <h2>Creates a goal object with no scoring max.</h2>
      *
-     * @param arena The host arena of this goal.
-     * @param xDimension The x dimension of the default box collider.
-     * @param yDimension The y dimension of the default box collider.
-     * @param height The height or z dimension of the default box collider.
+     * @param arena         The host arena of this goal.
+     * @param xDimension    The x dimension of the default box collider.
+     * @param yDimension    The y dimension of the default box collider.
+     * @param height        The height or z dimension of the default box collider.
      * @param gamePieceType the string game piece type to be handled by this goal.
-     * @param position The position of this goal.
-     * @param isBlue Wether this is a blue goal or a red one.
+     * @param position      The position of this goal.
+     * @param isBlue        Wether this is a blue goal or a red one.
      */
     public Goal(
             SimulatedArena arena,
@@ -137,7 +138,8 @@ public abstract class Goal implements SimulatedArena.Simulatable {
      *
      * <h2>Sets the angle to be used when checking game piece rotation.
      *
-     * @param angle The angle that pieces should have when interacting with this goal
+     * @param angle          The angle that pieces should have when interacting with
+     *                       this goal
      * @param angleTolerance The tolerance to be used in checking said angle.
      */
     public void setNeededAngle(Rotation3d angle, Angle angleTolerance) {
@@ -150,25 +152,34 @@ public abstract class Goal implements SimulatedArena.Simulatable {
      *
      * <h2>Sets the angle to be used when checking game piece rotation.
      *
-     * @param angle The angle that pieces should have when interacting with this goal
+     * @param angle The angle that pieces should have when interacting with this
+     *              goal
      */
     public void setNeededAngle(Rotation3d angle) {
         setNeededAngle(angle, pieceAngleTolerance);
     }
 
     /**
-     * A high level call to check wether or not the provided piece is within this goals hit box and meets all
-     * requirements to be scored. For more information on how this function calculates see the functions:
+     * A high level call to check wether or not the provided piece is within this
+     * goals hit box and meets all
+     * requirements to be scored. For more information on how this function
+     * calculates see the functions:
      *
-     * <p>{@link org.dyn4j.geometry.AbstractShape#contains(Vector2 point)}
+     * <p>
+     * {@link org.dyn4j.geometry.AbstractShape#contains(Vector2 point)}
      *
-     * <p>{@link Goal#checkHeight(GamePiece)}
+     * <p>
+     * {@link Goal#checkHeight(GamePiece)}
      *
-     * <p>{@link Goal#checkRotation(GamePiece)}
+     * <p>
+     * {@link Goal#checkRotation(GamePiece)}
      *
-     * <p>{@link Goal#checkVel(GamePiece)}
+     * <p>
+     * {@link Goal#checkVel(GamePiece)}
      *
-     * <p>Be aware that due to the nature of the goal class the above functions may or may not have the same
+     * <p>
+     * Be aware that due to the nature of the goal class the above functions may or
+     * may not have the same
      * implementation for children of the goal class.
      *
      * @param gamePiece The game piece to be checked.
@@ -181,15 +192,20 @@ public abstract class Goal implements SimulatedArena.Simulatable {
     /**
      *
      *
-     * <h2>Checks wether or not the submitted game piece has a rotation able to be scored in this goal </h2>
+     * <h2>Checks wether or not the submitted game piece has a rotation able to be
+     * scored in this goal</h2>
      *
-     * By default the rotation needed and tolerance may be set using the {@link Goal#setNeededAngle(Rotation3d, Angle)}
-     * function. However rotation checks may be handled differently by some children making this not apply. Additionally
-     * be aware that this function only supports pitch and yaw, not role. If support for roll is needed a custom
+     * By default the rotation needed and tolerance may be set using the
+     * {@link Goal#setNeededAngle(Rotation3d, Angle)}
+     * function. However rotation checks may be handled differently by some children
+     * making this not apply. Additionally
+     * be aware that this function only supports pitch and yaw, not role. If support
+     * for roll is needed a custom
      * implementation will have to be created.
      *
      * @param gamePiece The game piece to have its rotation checked.
-     * @return Wether or not the pieces rotation is consistent with rotation that are able to be scored in this goal.
+     * @return Wether or not the pieces rotation is consistent with rotation that
+     *         are able to be scored in this goal.
      */
     protected boolean checkRotation(GamePiece gamePiece) {
         if (pieceAngle == null) {
@@ -198,30 +214,27 @@ public abstract class Goal implements SimulatedArena.Simulatable {
         }
 
         Rotation3d normalDiff = gamePiece.getPose3d().getRotation().minus(pieceAngle);
-        Rotation3d flippedDiff =
-                flipRotation(gamePiece.getPose3d().getRotation()).minus(pieceAngle);
+        Rotation3d flippedDiff = flipRotation(gamePiece.getPose3d().getRotation()).minus(pieceAngle);
 
         return new Rotation3d(Degrees.of(0), normalDiff.getMeasureZ(), normalDiff.getMeasureZ())
-                                .getMeasureAngle()
-                                .in(Units.Degrees)
-                        < pieceAngleTolerance.in(Units.Degrees)
+                .getMeasureAngle()
+                .in(Units.Degrees) < pieceAngleTolerance.in(Units.Degrees)
                 || new Rotation3d(Degrees.of(0), flippedDiff.getMeasureZ(), flippedDiff.getMeasureZ())
-                                .getMeasureAngle()
-                                .in(Units.Degrees)
-                        < pieceAngleTolerance.in(Units.Degrees);
+                        .getMeasureAngle()
+                        .in(Units.Degrees) < pieceAngleTolerance.in(Units.Degrees);
     }
 
     /**
      *
      *
-     * <h2>Returns wether or not the submitted game piece is within the goal. </h2>
+     * <h2>Returns wether or not the submitted game piece is within the goal.</h2>
      *
      * @param gamePiece The game piece to be checked.
      * @return Wether or not the game piece is within the goal.
      */
     protected boolean checkCollision(GamePiece gamePiece) {
         return xyBox.contains(new Vector2(
-                        gamePiece.getPose3d().getX(), gamePiece.getPose3d().getY()))
+                gamePiece.getPose3d().getX(), gamePiece.getPose3d().getY()))
                 && gamePiece.getPose3d().getZ() >= elevation.in(Units.Meters)
                 && gamePiece.getPose3d().getZ() <= elevation.in(Units.Meters) + height.in(Units.Meters);
     }
@@ -229,13 +242,16 @@ public abstract class Goal implements SimulatedArena.Simulatable {
     /**
      *
      *
-     * <h2>Function to check wether the velocity of potential game pieces is acceptable.</h2>
+     * <h2>Function to check wether the velocity of potential game pieces is
+     * acceptable.</h2>
      *
-     * The default implementation of this function always returns true so any velocity checks will need to be
+     * The default implementation of this function always returns true so any
+     * velocity checks will need to be
      * implemented by children classes.
      *
      * @param gamePiece The game piece to have its velocity checked.
-     * @return Wether or not the pieces velocity is consistent with velocities that are able to be scored in this goal.
+     * @return Wether or not the pieces velocity is consistent with velocities that
+     *         are able to be scored in this goal.
      */
     protected boolean checkVel(GamePiece gamePiece) {
 
@@ -245,7 +261,7 @@ public abstract class Goal implements SimulatedArena.Simulatable {
     /**
      *
      *
-     * <h2>Removes all game pieces from this goal </h2>
+     * <h2>Removes all game pieces from this goal</h2>
      */
     public void clear() {
         this.gamePieceCount = 0;
@@ -267,7 +283,8 @@ public abstract class Goal implements SimulatedArena.Simulatable {
      *
      * <h2>Adds points when a piece has been successfully scored in this goal</h2>
      *
-     * Since this function is the only trigger called when a piece is scored it may handle other small things outside of
+     * Since this function is the only trigger called when a piece is scored it may
+     * handle other small things outside of
      * adding points.
      */
     protected abstract void addPoints();
@@ -277,8 +294,9 @@ public abstract class Goal implements SimulatedArena.Simulatable {
      *
      * <h2>Displays game pieces to advantage scope if applicable.</h2>
      *
-     * @param drawList a list of {@link Pose3d} objects used to visualize the positions of the game pieces on
-     *     AdvantageScope
+     * @param drawList a list of {@link Pose3d} objects used to visualize the
+     *                 positions of the game pieces on
+     *                 AdvantageScope
      */
     public abstract void draw(List<Pose3d> drawList);
 

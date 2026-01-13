@@ -6,6 +6,10 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.units.measure.LinearVelocity;
+
+import static edu.wpi.first.units.Units.Inches;
+import static edu.wpi.first.units.Units.Meters;
+
 import org.ironmaple.simulation.gamepieces.GamePieceProjectile;
 
 public class RebuiltFuelOnFly extends GamePieceProjectile {
@@ -29,6 +33,6 @@ public class RebuiltFuelOnFly extends GamePieceProjectile {
                 shooterAngle);
 
         super.enableBecomesGamePieceOnFieldAfterTouchGround();
-        super.withTouchGroundHeight(0.16); // diameter + tolerance?
+        super.withTouchGroundHeight(Inches.of(3).in(Meters));
     }
 }

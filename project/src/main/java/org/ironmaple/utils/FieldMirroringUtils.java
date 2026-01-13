@@ -4,6 +4,7 @@ import static edu.wpi.first.units.Units.Inches;
 import static edu.wpi.first.units.Units.Meters;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
@@ -30,9 +31,18 @@ public class FieldMirroringUtils {
         return new Translation2d(FIELD_WIDTH - translation.getX(), FIELD_HEIGHT - translation.getY());
     }
 
+    public static Pose3d flip(Pose3d toFlip) {
+        var flipped = flip(toFlip.getTranslation().toTranslation2d());
+        return new Pose3d(
+                flipped.getX(),
+                flipped.getY(),
+                toFlip.getZ(),
+                toFlip.getRotation());
+    }
+
     public static Translation3d toCurrentAllianceTranslation(Translation3d translation3dAtBlueSide) {
-        final Translation2d translation3dAtCurrentAlliance =
-                toCurrentAllianceTranslation(translation3dAtBlueSide.toTranslation2d());
+        final Translation2d translation3dAtCurrentAlliance = toCurrentAllianceTranslation(
+                translation3dAtBlueSide.toTranslation2d());
         if (isSidePresentedAsRed())
             return new Translation3d(
                     translation3dAtCurrentAlliance.getX(),

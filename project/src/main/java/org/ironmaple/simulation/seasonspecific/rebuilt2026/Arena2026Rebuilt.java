@@ -25,8 +25,6 @@ public class Arena2026Rebuilt extends SimulatedArena {
             super.addBorderLine(new Translation2d(0, 0), new Translation2d(FIELD_WIDTH, 0));
             super.addBorderLine(new Translation2d(0, FIELD_HEIGHT), new Translation2d(FIELD_WIDTH, FIELD_HEIGHT));
 
-            var blueHubPos = new Translation2d(4.626, 4.0);
-            var redHubPos = flip(blueHubPos);
             var blueTrenchRightPos = new Translation2d(4.626, 1.431);
             var blueTrenchLeftPos = new Translation2d(4.626, FIELD_HEIGHT - blueTrenchRightPos.getY());
             var redTrenchLeftPos = flip(blueTrenchRightPos);
@@ -84,8 +82,8 @@ public class Arena2026Rebuilt extends SimulatedArena {
 
     @Override
     public void placeGamePiecesOnField() {
-        double fuelDiameter =
-                ((org.dyn4j.geometry.Circle) RebuiltFuelOnField.REBUILT_FUEL_INFO.shape()).getRadius() * 2;
+        double fuelDiameter = ((org.dyn4j.geometry.Circle) RebuiltFuelOnField.REBUILT_FUEL_INFO.shape()).getRadius()
+                * 2;
         double fuelRadius = fuelDiameter / 2;
         double spacing = fuelDiameter + fuelSeparationGap;
 
@@ -123,8 +121,8 @@ public class Arena2026Rebuilt extends SimulatedArena {
         // Sort lists to ensure deterministic deterministic filling order (e.g. from
         // center out)
         // Distance to center ascending
-        java.util.Comparator<Translation2d> distComparator =
-                java.util.Comparator.comparingDouble(p -> p.getDistance(fuelZoneCenter));
+        java.util.Comparator<Translation2d> distComparator = java.util.Comparator
+                .comparingDouble(p -> p.getDistance(fuelZoneCenter));
         for (java.util.List<Translation2d> q : quadrants) {
             q.sort(distComparator);
         }
@@ -135,7 +133,8 @@ public class Arena2026Rebuilt extends SimulatedArena {
         while (added < fuelCount && piecesAvailable) {
             piecesAvailable = false;
             for (int i = 0; i < 4; i++) {
-                if (added >= fuelCount) break;
+                if (added >= fuelCount)
+                    break;
 
                 java.util.List<Translation2d> q = quadrants.get(i);
                 if (indices[i] < q.size()) {

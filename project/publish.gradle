@@ -136,7 +136,7 @@ artifacts {
 
 libraryBuild.dependsOn build
 
-def releasesRepoUrl = "$rootDir/../docs/vendordep/repos/releases"
+def releasesRepoUrl = "file:/Users/rholmdahl/wpilib/2026/maven"
 
 publishing {
     repositories {
