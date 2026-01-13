@@ -30,7 +30,7 @@ import org.ironmaple.simulation.gamepieces.GamePiece;
 import org.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
 import org.ironmaple.simulation.gamepieces.GamePieceProjectile;
 import org.ironmaple.simulation.motorsims.SimulatedBattery;
-import org.ironmaple.simulation.seasonspecific.reefscape2025.Arena2025Reefscape;
+import org.ironmaple.simulation.seasonspecific.rebuilt2026.Arena2026Rebuilt;
 import org.ironmaple.utils.mathutils.GeometryConvertor;
 
 /**
@@ -38,7 +38,7 @@ import org.ironmaple.utils.mathutils.GeometryConvertor;
  *
  * <h1>Abstract Simulation World</h1>
  *
- * <p>Check <a href='https://shenzhen-robotics-alliance.github.io/maple-sim/using-the-simulated-arena/'>Online
+ * <p>Check <a href= 'https://shenzhen-robotics-alliance.github.io/maple-sim/using-the-simulated-arena/'>Online
  * Documentation</a>
  *
  * <h2>The heart of the simulator.</h2>
@@ -49,7 +49,7 @@ import org.ironmaple.utils.mathutils.GeometryConvertor;
  *
  * <p>Simulates all interactions within the arena field.
  *
- * <h2>The following objects can be added to the simulation world and will interact with each other: </h2>
+ * <h2>The following objects can be added to the simulation world and will interact with each other:</h2>
  *
  * <ul>
  *   <li>{@link AbstractDriveTrainSimulation}: Represents abstract drivetrain simulations with collision detection.
@@ -92,6 +92,7 @@ public abstract class SimulatedArena {
     Boolean shouldPublishMatchBreakdown = true;
 
     private static SimulatedArena instance = null;
+
     /**
      *
      *
@@ -107,7 +108,7 @@ public abstract class SimulatedArena {
             throw new IllegalStateException(
                     "MapleSim is running on a real robot! (If you would actually want that, set SimulatedArena.ALLOW_CREATION_ON_REAL_ROBOT to true).");
 
-        if (instance == null) instance = new Arena2025Reefscape();
+        if (instance == null) instance = new Arena2026Rebuilt();
 
         return instance;
     }
@@ -135,6 +136,7 @@ public abstract class SimulatedArena {
     public static int getSimulationSubTicksIn1Period() {
         return SIMULATION_SUB_TICKS_IN_1_PERIOD;
     }
+
     /** The period length of each sub-tick, in seconds. */
     private static Time SIMULATION_DT = Seconds.of(TimedRobot.kDefaultPeriod / SIMULATION_SUB_TICKS_IN_1_PERIOD);
 
@@ -185,7 +187,7 @@ public abstract class SimulatedArena {
      *
      * <h2>Overrides the Timing Configurations of the Simulations.</h2>
      *
-     * <h4>If Using <a href='https://github.com/Mechanical-Advantage/AdvantageKit'>Advantage-Kit</a>: DO NOT CHANGE THE
+     * <h4>If Using <a href= 'https://github.com/Mechanical-Advantage/AdvantageKit'>Advantage-Kit</a>: DO NOT CHANGE THE
      * DEFAULT TIMINGS</h4>
      *
      * <p>Changes apply to every instance of {@link SimulatedArena}.
@@ -517,7 +519,7 @@ public abstract class SimulatedArena {
      *
      *
      * <h2>Shuts down the current SimulatedArena and stops all simulation so that simulatable objects may be added to a
-     * new arena </h2>
+     * new arena</h2>
      */
     public synchronized void shutDown() {
         this.physicsWorld.removeAllBodies();
@@ -529,8 +531,8 @@ public abstract class SimulatedArena {
      * <h2>Update the simulation world.</h2>
      *
      * <p>This method should be called ONCE in {@link TimedRobot#simulationPeriodic()} (or <code>
-     * LoggedRobot.simulationPeriodic()</code> if using <a
-     * href='https://github.com/Mechanical-Advantage/AdvantageKit'>Advantage-Kit</a>)
+     * LoggedRobot.simulationPeriodic()</code> if using <a href=
+     * 'https://github.com/Mechanical-Advantage/AdvantageKit'>Advantage-Kit</a>)
      *
      * <p>If not configured through {@link SimulatedArena#overrideSimulationTimings(Time, int)} , the simulator will
      * iterate through 5 Sub-ticks by default.
@@ -539,7 +541,10 @@ public abstract class SimulatedArena {
      * SmartDashboard/MapleArenaSimulation/Dyn4jEngineCPUTimeMS</code>, usually performance is not a concern
      */
     public synchronized void simulationPeriodic() {
-        /* obtain lock to the simulated arena class to block any calls to overrideTimings() */
+        /*
+         * obtain lock to the simulated arena class to block any calls to
+         * overrideTimings()
+         */
         synchronized (SimulatedArena.class) {
             final long t0 = System.nanoTime();
             // move through a few sub-periods in each update
