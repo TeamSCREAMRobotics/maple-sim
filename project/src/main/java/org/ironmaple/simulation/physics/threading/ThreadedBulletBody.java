@@ -1,7 +1,6 @@
 package org.ironmaple.simulation.physics.threading;
 
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import org.ironmaple.simulation.physics.PhysicsBody;
 import org.ironmaple.simulation.physics.bullet.BulletBody;
@@ -92,12 +91,12 @@ public class ThreadedBulletBody implements PhysicsBody {
     }
 
     @Override
-    public Rotation3d getAngularVelocityRadPerSec() {
+    public Translation3d getAngularVelocityRadPerSec() {
         return proxy.getCachedBodyAngularVelocity(bodyId);
     }
 
     @Override
-    public void setAngularVelocityRadPerSec(Rotation3d angularVelocityRadPerSec) {
+    public void setAngularVelocityRadPerSec(Translation3d angularVelocityRadPerSec) {
         proxy.queueVelocityReset(bodyId, getLinearVelocityMPS(), angularVelocityRadPerSec);
     }
 

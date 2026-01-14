@@ -1,7 +1,6 @@
 package org.ironmaple.simulation.physics;
 
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
 
 /**
@@ -66,19 +65,19 @@ public interface PhysicsBody {
      *
      * <h2>Gets the Angular Velocity of This Body.</h2>
      *
-     * @return the angular velocity in radians per second, encoded as a {@link Rotation3d} (roll rate, pitch rate, yaw
-     *     rate)
+     * @return the angular velocity in radians per second, as a vector {@link Translation3d} (x=roll rate, y=pitch rate,
+     *     z=yaw rate)
      */
-    Rotation3d getAngularVelocityRadPerSec();
+    Translation3d getAngularVelocityRadPerSec();
 
     /**
      *
      *
      * <h2>Sets the Angular Velocity of This Body.</h2>
      *
-     * @param angularVelocityRadPerSec the angular velocity
+     * @param angularVelocityRadPerSec the angular velocity vector
      */
-    void setAngularVelocityRadPerSec(Rotation3d angularVelocityRadPerSec);
+    void setAngularVelocityRadPerSec(Translation3d angularVelocityRadPerSec);
 
     /**
      *

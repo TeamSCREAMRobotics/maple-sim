@@ -122,7 +122,7 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
                 new Rotation3d(0, 0, robotPose.getRotation().getRadians()));
         physicsBody.setPose3d(newPose);
         physicsBody.setLinearVelocityMPS(new Translation3d());
-        physicsBody.setAngularVelocityRadPerSec(new Rotation3d());
+        physicsBody.setAngularVelocityRadPerSec(new Translation3d());
     }
 
     /**
@@ -145,7 +145,7 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
                 givenSpeeds.vxMetersPerSecond * Math.sin(heading) + givenSpeeds.vyMetersPerSecond * Math.cos(heading);
 
         physicsBody.setLinearVelocityMPS(new Translation3d(vx, vy, 0));
-        physicsBody.setAngularVelocityRadPerSec(new Rotation3d(0, 0, givenSpeeds.omegaRadiansPerSecond));
+        physicsBody.setAngularVelocityRadPerSec(new Translation3d(0, 0, givenSpeeds.omegaRadiansPerSecond));
     }
 
     /**
@@ -225,7 +225,7 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
         if (physicsBody == null) return new ChassisSpeeds();
 
         Translation3d linearVel = physicsBody.getLinearVelocityMPS();
-        Rotation3d angularVel = physicsBody.getAngularVelocityRadPerSec();
+        Translation3d angularVel = physicsBody.getAngularVelocityRadPerSec();
 
         return new ChassisSpeeds(linearVel.getX(), linearVel.getY(), angularVel.getZ());
     }

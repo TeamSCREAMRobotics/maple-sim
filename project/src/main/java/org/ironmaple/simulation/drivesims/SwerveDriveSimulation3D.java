@@ -45,6 +45,7 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
     // Physics calculator for threaded mode (runs on physics thread)
     private org.ironmaple.simulation.physics.threading.SwervePhysicsCalculator physicsCalculator;
     private boolean calculatorRegistered = false;
+    private Double previousBodyYaw = null;
 
     // ==================== Suspension Parameters ====================
 
@@ -176,6 +177,15 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
                     String.format("Heading2d=%.1f° (from toRotation2d)", Math.toDegrees(heading2d.getRadians())));
         }
 
+        // DEBUG: Trace gyro in threaded mode
+        if (isThreaded && (System.currentTimeMillis() % 1000) < 15) {
+            System.out.printf(
+                    "[MapleSim3D] GyroTrace: yawRate=%.4f rad/s, gyroAngle=%.2f deg, BodyZ=%.4f%n",
+                    yawRate,
+                    gyroSimulation.getGyroReading().getDegrees(),
+                    pose3d.getRotation().getZ());
+        }
+
         // Apply suspension and traction forces
         // In threaded mode, forces are calculated on the physics thread by
         // SwervePhysicsCalculator
@@ -186,8 +196,26 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
         // Note: In threaded mode, SwervePhysicsCalculator.applyForces() is called
         // by PhysicsThread each tick with CURRENT state, not stale cached state
 
-        // Update gyro with yaw rate
-        gyroSimulation.updateSimulationSubTick(yawRate);
+        // Calculate Yaw Rate from Pose Delta to ensure robustness against physics
+        // engine quirks
+        double currentBodyYaw = pose3d.getRotation().getZ();
+        if (previousBodyYaw == null) previousBodyYaw = currentBodyYaw;
+
+        double dYaw = edu.wpi.first.math.MathUtil.angleModulus(Rotation2d.fromRadians(currentBodyYaw)
+                .minus(Rotation2d.fromRadians(previousBodyYaw))
+                .getRadians());
+
+        double derivedYawRate =
+                dYaw / org.ironmaple.simulation.SimulatedArena.getSimulationDt().in(Seconds);
+        previousBodyYaw = currentBodyYaw;
+
+        // DEBUG: Trace comparison
+        if (isThreaded && (System.currentTimeMillis() % 1000) < 15) {
+            System.out.printf("[MapleSim3D] Yaw Comparison: Physics=%.4f vs Derived=%.4f%n", yawRate, derivedYawRate);
+        }
+
+        // Update gyro with derived yaw rate
+        gyroSimulation.updateSimulationSubTick(derivedYawRate);
     }
 
     /** Gets the yaw rate from a physics body, handling different wrapper types. */
@@ -351,9 +379,9 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
                 int newId = proxy.queueRaycast(rayOrigin, rayDirection, maxRayDistance);
                 lastQueuedRaycastIds[i] = newId;
             } else {
-                // Sync mode: direct raycast
+                // Sync mode: direct raycast, excluding our own body
                 Optional<PhysicsEngine.RaycastResult> hit =
-                        physicsEngine.raycast(rayOrigin, rayDirection, maxRayDistance);
+                        physicsEngine.raycast(rayOrigin, rayDirection, maxRayDistance, physicsBody);
                 hitResult = hit.orElse(null);
             }
 

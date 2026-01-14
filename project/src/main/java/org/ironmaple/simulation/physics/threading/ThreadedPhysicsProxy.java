@@ -1,7 +1,6 @@
 package org.ironmaple.simulation.physics.threading;
 
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import java.util.HashMap;
 import java.util.Map;
@@ -95,9 +94,9 @@ public class ThreadedPhysicsProxy {
      * @param bodyId The body ID
      * @return The angular velocity, or zero if not found
      */
-    public Rotation3d getCachedBodyAngularVelocity(int bodyId) {
+    public Translation3d getCachedBodyAngularVelocity(int bodyId) {
         SimulationState.BodyState state = cachedState.getBodyState(bodyId);
-        return state != null ? state.angularVelocity() : new Rotation3d();
+        return state != null ? state.angularVelocity() : new Translation3d();
     }
 
     /**
@@ -116,7 +115,7 @@ public class ThreadedPhysicsProxy {
         Translation3d relOffset = pointWorld.minus(comWorld);
 
         Translation3d linearVel = state.linearVelocity();
-        Rotation3d angVel = state.angularVelocity();
+        Translation3d angVel = state.angularVelocity();
 
         // Cross product: omega x r
         double ox = angVel.getX(), oy = angVel.getY(), oz = angVel.getZ();
@@ -218,7 +217,7 @@ public class ThreadedPhysicsProxy {
      * @param linear New linear velocity
      * @param angular New angular velocity
      */
-    public void queueVelocityReset(int bodyId, Translation3d linear, Rotation3d angular) {
+    public void queueVelocityReset(int bodyId, Translation3d linear, Translation3d angular) {
         inputBuilder.addVelocityReset(bodyId, linear, angular);
     }
 

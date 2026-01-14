@@ -1,7 +1,6 @@
 package org.ironmaple.simulation.physics.threading;
 
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -91,7 +90,7 @@ public record SimulationInputs(
      * @param linearVelocity New linear velocity
      * @param angularVelocity New angular velocity
      */
-    public record VelocityResetCommand(int bodyId, Translation3d linearVelocity, Rotation3d angularVelocity) {}
+    public record VelocityResetCommand(int bodyId, Translation3d linearVelocity, Translation3d angularVelocity) {}
 
     /**
      * Raycast request for suspension or other queries.
@@ -158,7 +157,7 @@ public record SimulationInputs(
             return this;
         }
 
-        public Builder addVelocityReset(int bodyId, Translation3d linear, Rotation3d angular) {
+        public Builder addVelocityReset(int bodyId, Translation3d linear, Translation3d angular) {
             velocityResets.add(new VelocityResetCommand(bodyId, linear, angular));
             return this;
         }

@@ -1,7 +1,6 @@
 package org.ironmaple.simulation.physics.threading;
 
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import java.util.Collections;
 import java.util.HashMap;
@@ -57,7 +56,7 @@ public record SimulationState(
      * @param linearVelocity Linear velocity in m/s
      * @param angularVelocity Angular velocity in rad/s
      */
-    public record BodyState(int bodyId, Pose3d pose, Translation3d linearVelocity, Rotation3d angularVelocity) {}
+    public record BodyState(int bodyId, Pose3d pose, Translation3d linearVelocity, Translation3d angularVelocity) {}
 
     /** Builder for creating SimulationState instances. */
     public static class Builder {

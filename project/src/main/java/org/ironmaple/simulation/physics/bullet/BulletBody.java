@@ -4,7 +4,6 @@ import com.jme3.bullet.objects.PhysicsRigidBody;
 import com.jme3.math.Quaternion;
 import com.jme3.math.Vector3f;
 import edu.wpi.first.math.geometry.Pose3d;
-import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.ironmaple.simulation.physics.PhysicsBody;
@@ -88,32 +87,25 @@ public class BulletBody implements PhysicsBody {
     }
 
     @Override
-    public Rotation3d getAngularVelocityRadPerSec() {
+    public Translation3d getAngularVelocityRadPerSec() {
         Vector3f angVel = rigidBody.getAngularVelocity(null);
-        // Angular velocity in Bullet is a vector (axis * magnitude)
-        // We convert to Rotation3d representing the angular velocity components
-        return new Rotation3d(angVel.x, angVel.y, angVel.z);
+        return BulletPhysicsEngine.toTranslation3d(angVel).times(-1);
     }
 
     /**
-     * Gets the raw angular velocity Z component (yaw rate) directly. This bypasses the Rotation3d conversion which can
-     * corrupt values.
+     * Gets the raw angular velocity Z component (yaw rate) directly.
      *
      * @return the yaw rate in radians per second
      */
     public double getRawAngularVelocityZ() {
         Vector3f angVel = rigidBody.getAngularVelocity(null);
-        return angVel.z;
+        return -angVel.z;
     }
 
     @Override
-    public void setAngularVelocityRadPerSec(Rotation3d angularVelocityRadPerSec) {
-        // Extract angular velocity components from Rotation3d
-        // This assumes the Rotation3d encodes angular velocity as (roll rate, pitch
-        // rate, yaw rate)
-        Vector3f angVel =
-                new Vector3f((float) angularVelocityRadPerSec.getX(), (float) angularVelocityRadPerSec.getY(), (float)
-                        angularVelocityRadPerSec.getZ());
+    public void setAngularVelocityRadPerSec(Translation3d angularVelocityRadPerSec) {
+        // Extract angular velocity components from Translation3d
+        Vector3f angVel = BulletPhysicsEngine.toVector3f(angularVelocityRadPerSec.times(-1));
         rigidBody.setAngularVelocity(angVel);
     }
 
