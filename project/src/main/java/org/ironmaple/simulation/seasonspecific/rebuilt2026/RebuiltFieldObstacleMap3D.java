@@ -8,18 +8,21 @@ import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import org.ironmaple.simulation.SimulatedArena3D;
-import org.ironmaple.utils.FieldMirroringUtils;
 
 public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
 
-    private static final double FIELD_WIDTH = 17.548;
-    private static final double FIELD_HEIGHT = 8.052;
+    private static final double FIELD_WIDTH = Inches.of(651).in(Meters);
+    private static final double FIELD_HEIGHT = Inches.of(315).in(Meters);
 
     public RebuiltFieldObstacleMap3D() {
         super();
 
-        // Field Perimeter Walls (assume 50cm height)
-        double wallHeight = 0.5;
+        // Field Perimeter Walls
+        // Side walls (Length-wise): 51cm
+        double sideWallHeight = 0.51;
+        // Alliance walls (Width-wise): 2m
+        double allianceWallHeight = 2.0;
+
         double wallThickness = 0.1;
 
         // Floor (Ground)
@@ -29,53 +32,27 @@ public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
                 new Translation3d(FIELD_WIDTH * 1.5 / 2, FIELD_HEIGHT * 1.5 / 2, floorThickness / 2),
                 new Pose3d(FIELD_WIDTH / 2, FIELD_HEIGHT / 2, -floorThickness / 2, new Rotation3d()));
 
-        // Top Wall
+        // Top Wall (Side Wall)
         this.addBorderLine(
-                new Translation3d(FIELD_WIDTH / 2, FIELD_HEIGHT + wallThickness / 2, wallHeight / 2),
-                new Translation3d(FIELD_WIDTH, wallThickness, wallHeight));
+                new Translation3d(FIELD_WIDTH / 2, FIELD_HEIGHT + wallThickness / 2, sideWallHeight / 2),
+                new Translation3d(FIELD_WIDTH, wallThickness, sideWallHeight));
 
-        // Bottom Wall (0 y is bottom?) No, 0,0 is usually bottom left.
-        // 2D map: addBorderLine(new Translation2d(0, 0), new Translation2d(FIELD_WIDTH,
-        // 0));
+        // Bottom Wall (Side Wall)
         this.addBorderLine(
-                new Translation3d(FIELD_WIDTH / 2, -wallThickness / 2, wallHeight / 2),
-                new Translation3d(FIELD_WIDTH, wallThickness, wallHeight));
+                new Translation3d(FIELD_WIDTH / 2, -wallThickness / 2, sideWallHeight / 2),
+                new Translation3d(FIELD_WIDTH, wallThickness, sideWallHeight));
 
         // Left Wall
         this.addBorderLine(
-                new Translation3d(-wallThickness / 2, FIELD_HEIGHT / 2, wallHeight / 2),
-                new Translation3d(wallThickness, FIELD_HEIGHT, wallHeight));
+                new Translation3d(-wallThickness / 2, FIELD_HEIGHT / 2, allianceWallHeight / 2),
+                new Translation3d(wallThickness, FIELD_HEIGHT, allianceWallHeight));
 
         // Right Wall
         this.addBorderLine(
-                new Translation3d(FIELD_WIDTH + wallThickness / 2, FIELD_HEIGHT / 2, wallHeight / 2),
-                new Translation3d(wallThickness, FIELD_HEIGHT, wallHeight));
+                new Translation3d(FIELD_WIDTH + wallThickness / 2, FIELD_HEIGHT / 2, allianceWallHeight / 2),
+                new Translation3d(wallThickness, FIELD_HEIGHT, allianceWallHeight));
 
         // --- Obstacles from RebuiltFieldObstacleMap ---
-
-        // Blue Trench Right
-        var blueTrenchRightPos = new Translation2d(4.626, 1.431);
-        addBox(
-                new Translation3d(1.194 / 2, 0.305 / 2, 0.5),
-                new Pose3d(blueTrenchRightPos.getX(), blueTrenchRightPos.getY(), 0.5, new Rotation3d()));
-
-        // Blue Trench Left
-        var blueTrenchLeftPos = new Translation2d(4.626, FIELD_HEIGHT - 1.431); // 1.431 is Y from 2D map
-        addBox(
-                new Translation3d(1.19 / 2, 0.305 / 2, 0.5),
-                new Pose3d(blueTrenchLeftPos.getX(), blueTrenchLeftPos.getY(), 0.5, new Rotation3d()));
-
-        // Red Trench Left (Mirror of Blue Right)
-        Translation2d redTrenchLeftPos = FieldMirroringUtils.flip(blueTrenchRightPos);
-        addBox(
-                new Translation3d(1.194 / 2, 0.305 / 2, 0.5),
-                new Pose3d(redTrenchLeftPos.getX(), redTrenchLeftPos.getY(), 0.5, new Rotation3d()));
-
-        // Red Trench Right (Mirror of Blue Left)
-        Translation2d redTrenchRightPos = FieldMirroringUtils.flip(blueTrenchLeftPos);
-        addBox(
-                new Translation3d(1.19 / 2, 0.305 / 2, 0.5),
-                new Pose3d(redTrenchRightPos.getX(), redTrenchRightPos.getY(), 0.5, new Rotation3d()));
 
         // Blue Hub
         Translation2d blueHubPos = RebuiltHub.BLUE_HUB_POS.toTranslation2d();
@@ -85,35 +62,49 @@ public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
         Translation2d redHubPos = RebuiltHub.RED_HUB_POS.toTranslation2d();
         addObstacle("meshes/hub.obj", new Pose3d(redHubPos.getX(), redHubPos.getY(), 0, new Rotation3d(0, 0, Math.PI)));
 
-        // Blue Tower Poles
-        // 2D: size 2" x 47", pos (42", 159")
-        double polesWidth = Inches.of(2).in(Meters);
-        double polesHeight = Inches.of(47).in(Meters); // Length in 2D
-        double poleZHeight = 2.0; // Assume tall poles
-        Translation2d bluePolePos =
-                new Translation2d(Inches.of(42).in(Meters), Inches.of(159).in(Meters));
-        addBox(
-                new Translation3d(polesWidth / 2, polesHeight / 2, poleZHeight / 2),
-                new Pose3d(bluePolePos.getX(), bluePolePos.getY(), poleZHeight / 2, new Rotation3d()));
+        // Bumps (Cable Protectors?)
+        double bumpOffset = 1.47678149;
 
-        // Red Tower Poles
-        Translation2d redPolePos =
-                new Translation2d(Inches.of(651 - 42).in(Meters), Inches.of(170).in(Meters));
-        addBox(
-                new Translation3d(polesWidth / 2, polesHeight / 2, poleZHeight / 2),
-                new Pose3d(redPolePos.getX(), redPolePos.getY(), poleZHeight / 2, new Rotation3d()));
+        // Blue Side Bumps
+        // Blue Left (Top): 0 deg (Global Left is +Y)
+        addObstacle(
+                "meshes/bump.obj", new Pose3d(blueHubPos.getX(), blueHubPos.getY() + bumpOffset, 0, new Rotation3d()));
+        // Blue Right (Bottom): 180 deg
+        addObstacle(
+                "meshes/bump.obj",
+                new Pose3d(blueHubPos.getX(), blueHubPos.getY() - bumpOffset, 0, new Rotation3d(0, 0, Math.PI)));
 
-        // --- Custom V-HACD Meshes ---
-        // Placeholders - User to provide actual paths and poses
-        // To use: ensure meshes are in src/main/resources/meshes/
-        // Pose3d corresponds to the (0,0,0) origin of the OBJ file.
+        // Red Side Bumps
+        // Red Left (Top?): 180 deg (Global Left is +Y)
+        addObstacle(
+                "meshes/bump.obj",
+                new Pose3d(redHubPos.getX(), redHubPos.getY() + bumpOffset, 0, new Rotation3d(0, 0, Math.PI)));
+        // Red Right (Bottom?): 0 deg
+        addObstacle(
+                "meshes/bump.obj", new Pose3d(redHubPos.getX(), redHubPos.getY() - bumpOffset, 0, new Rotation3d()));
 
-        /*
-         * Example:
-         * addObstacle("meshes/reef.obj", new Pose3d(0, 0, 0, new Rotation3d()));
-         * addObstacle("meshes/coral_station.obj", new Pose3d(0, 0, 0, new
-         * Rotation3d()));
-         */
+        // Blue Trench Fixed (-Y global relative to Left Bump)
+        addObstacle("meshes/trench_fixed.obj", new Pose3d(blueHubPos.getX(), 1.457137, 0, new Rotation3d()));
+
+        // Blue Trench Hinged (+Y global relative to Right Bump)
+        addObstacle("meshes/trench_hinged.obj", new Pose3d(blueHubPos.getX(), 6.642863, 0, new Rotation3d()));
+
+        // Red Trench Fixed (-Y global relative to Left Bump)
+        addObstacle("meshes/trench_fixed.obj", new Pose3d(redHubPos.getX(), 1.457137, 0, new Rotation3d()));
+
+        // Red Trench Hinged (+Y global relative to Right Bump)
+        addObstacle("meshes/trench_hinged.obj", new Pose3d(redHubPos.getX(), 6.642863, 0, new Rotation3d()));
+
+        // TOWERS
+        // Blue Tower (0 deg)
+        // User: Y 3.711195 X 0.572294 Z 0, Rotated 180 from previous (PI) -> 0
+        // Wait, current was PI. Rotate 180 -> 2PI -> 0.
+        addObstacle("meshes/tower.obj", new Pose3d(0.572294, 3.711195, 0, new Rotation3d()));
+
+        // Red Tower (180 deg)
+        // User: Y 4.288805 X field length (long) - 0.572294 Z 0, Rotated 180 from
+        // previous (0) -> PI
+        addObstacle("meshes/tower.obj", new Pose3d(FIELD_WIDTH - 0.572294, 4.288805, 0, new Rotation3d(0, 0, Math.PI)));
     }
 
     public void addObstacle(String meshResourcePath, Pose3d pose) {

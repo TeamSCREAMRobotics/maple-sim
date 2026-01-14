@@ -175,15 +175,43 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         try {
             java.util.List<Translation3d[]> hulls = org.ironmaple.utils.ObjLoader.loadConvexHulls(resourcePath);
 
+            System.out.println("[MapleSim3D] Loading mesh: " + resourcePath);
+            System.out.println("[MapleSim3D] Found " + hulls.size() + " convex hulls");
+
+            if (hulls.isEmpty()) {
+                System.err.println("[MapleSim3D] WARNING: No hulls found in mesh!");
+                // Return a tiny placeholder shape
+                return createBoxShape(new Translation3d(0.01, 0.01, 0.01));
+            }
+
+            // Calculate bounding box for diagnostics
+            double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+            double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+            double minZ = Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+            int totalVertices = 0;
+
             CompoundCollisionShape compound = new CompoundCollisionShape(hulls.size());
 
-            for (Translation3d[] hullVertices : hulls) {
+            for (int h = 0; h < hulls.size(); h++) {
+                Translation3d[] hullVertices = hulls.get(h);
+                totalVertices += hullVertices.length;
+
                 // Convert to float buffer
                 float[] points = new float[hullVertices.length * 3];
                 for (int i = 0; i < hullVertices.length; i++) {
-                    points[i * 3] = (float) hullVertices[i].getX();
-                    points[i * 3 + 1] = (float) hullVertices[i].getY();
-                    points[i * 3 + 2] = (float) hullVertices[i].getZ();
+                    double x = hullVertices[i].getX();
+                    double y = hullVertices[i].getY();
+                    double z = hullVertices[i].getZ();
+                    points[i * 3] = (float) x;
+                    points[i * 3 + 1] = (float) y;
+                    points[i * 3 + 2] = (float) z;
+
+                    minX = Math.min(minX, x);
+                    maxX = Math.max(maxX, x);
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                    minZ = Math.min(minZ, z);
+                    maxZ = Math.max(maxZ, z);
                 }
 
                 HullCollisionShape hullShape = new HullCollisionShape(points);
@@ -191,8 +219,17 @@ public class BulletPhysicsEngine implements PhysicsEngine {
                 compound.addChildShape(hullShape, 0, 0, 0);
             }
 
+            System.out.println("[MapleSim3D] Total vertices: " + totalVertices);
+            System.out.printf(
+                    "[MapleSim3D] Bounding box: X[%.2f to %.2f] Y[%.2f to %.2f] Z[%.2f to %.2f]%n",
+                    minX, maxX, minY, maxY, minZ, maxZ);
+            System.out.printf(
+                    "[MapleSim3D] Mesh dimensions: %.2fm x %.2fm x %.2fm%n", maxX - minX, maxY - minY, maxZ - minZ);
+
             return new BulletShape(compound, PhysicsShape.ShapeType.COMPOUND);
         } catch (java.io.IOException e) {
+            System.err.println("[MapleSim3D] ERROR loading mesh: " + resourcePath);
+            e.printStackTrace();
             throw new RuntimeException("Failed to load generic collision mesh: " + resourcePath, e);
         }
     }

@@ -150,6 +150,9 @@ public abstract class SimulatedArena3D implements Arena {
             if (shape != null) {
                 PhysicsBody body = physicsEngine.createStaticBody(shape, obstacle.pose());
                 staticBodies.add(body);
+                System.out.println("[MapleSim3D] Created static body: "
+                        + (obstacle.meshResourcePath() != null ? obstacle.meshResourcePath() : "Primitives"));
+                System.out.println("[MapleSim3D] Global Pose: " + obstacle.pose());
             }
         }
 
