@@ -159,7 +159,7 @@ public class BulletPhysicsEngine implements PhysicsEngine {
 
     @Override
     public PhysicsShape createConvexHullShape(Translation3d[] vertices) {
-        // Convert to float buffer
+        // Converts to float buffer
         float[] points = new float[vertices.length * 3];
         for (int i = 0; i < vertices.length; i++) {
             points[i * 3] = (float) vertices[i].getX();
@@ -168,6 +168,33 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         }
         HullCollisionShape hull = new HullCollisionShape(points);
         return new BulletShape(hull, PhysicsShape.ShapeType.CONVEX_HULL);
+    }
+
+    @Override
+    public PhysicsShape createCompoundShapeFromMesh(String resourcePath) {
+        try {
+            java.util.List<Translation3d[]> hulls = org.ironmaple.utils.ObjLoader.loadConvexHulls(resourcePath);
+
+            CompoundCollisionShape compound = new CompoundCollisionShape(hulls.size());
+
+            for (Translation3d[] hullVertices : hulls) {
+                // Convert to float buffer
+                float[] points = new float[hullVertices.length * 3];
+                for (int i = 0; i < hullVertices.length; i++) {
+                    points[i * 3] = (float) hullVertices[i].getX();
+                    points[i * 3 + 1] = (float) hullVertices[i].getY();
+                    points[i * 3 + 2] = (float) hullVertices[i].getZ();
+                }
+
+                HullCollisionShape hullShape = new HullCollisionShape(points);
+                // Child shape, local transform (Identity)
+                compound.addChildShape(hullShape, 0, 0, 0);
+            }
+
+            return new BulletShape(compound, PhysicsShape.ShapeType.COMPOUND);
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to load generic collision mesh: " + resourcePath, e);
+        }
     }
 
     @Override

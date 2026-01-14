@@ -135,10 +135,18 @@ public abstract class SimulatedArena3D implements Arena {
         // Add field obstacles
         for (FieldMap3D.Obstacle obstacle : fieldMap.getObstacles()) {
             PhysicsShape shape = obstacle.shape();
-            // If shape is null, create it from halfExtents
-            if (shape == null && obstacle.halfExtents() != null) {
+            // If shape is null, check for mesh resource or halfExtents
+            if (shape == null && obstacle.meshResourcePath() != null) {
+                try {
+                    shape = physicsEngine.createCompoundShapeFromMesh(obstacle.meshResourcePath());
+                } catch (Exception e) {
+                    DriverStation.reportError(
+                            "Failed to load mesh obstacle: " + obstacle.meshResourcePath(), e.getStackTrace());
+                }
+            } else if (shape == null && obstacle.halfExtents() != null) {
                 shape = physicsEngine.createBoxShape(obstacle.halfExtents());
             }
+
             if (shape != null) {
                 PhysicsBody body = physicsEngine.createStaticBody(shape, obstacle.pose());
                 staticBodies.add(body);
@@ -512,11 +520,21 @@ public abstract class SimulatedArena3D implements Arena {
             private final PhysicsShape shape;
             private final Pose3d pose;
             private final Translation3d halfExtents;
+            private final String meshResourcePath;
 
             public Obstacle(PhysicsShape shape, Pose3d pose, Translation3d halfExtents) {
+                this(shape, pose, halfExtents, null);
+            }
+
+            public Obstacle(PhysicsShape shape, Pose3d pose, Translation3d halfExtents, String meshResourcePath) {
                 this.shape = shape;
                 this.pose = pose;
                 this.halfExtents = halfExtents;
+                this.meshResourcePath = meshResourcePath;
+            }
+
+            public Obstacle(String meshResourcePath, Pose3d pose) {
+                this(null, pose, null, meshResourcePath);
             }
 
             public PhysicsShape shape() {
@@ -529,6 +547,10 @@ public abstract class SimulatedArena3D implements Arena {
 
             public Translation3d halfExtents() {
                 return halfExtents;
+            }
+
+            public String meshResourcePath() {
+                return meshResourcePath;
             }
         }
 

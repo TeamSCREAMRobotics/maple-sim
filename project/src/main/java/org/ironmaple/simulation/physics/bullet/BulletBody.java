@@ -76,6 +76,17 @@ public class BulletBody implements PhysicsBody {
         return new Rotation3d(angVel.x, angVel.y, angVel.z);
     }
 
+    /**
+     * Gets the raw angular velocity Z component (yaw rate) directly. This bypasses the Rotation3d conversion which can
+     * corrupt values.
+     *
+     * @return the yaw rate in radians per second
+     */
+    public double getRawAngularVelocityZ() {
+        Vector3f angVel = rigidBody.getAngularVelocity(null);
+        return angVel.z;
+    }
+
     @Override
     public void setAngularVelocityRadPerSec(Rotation3d angularVelocityRadPerSec) {
         // Extract angular velocity components from Rotation3d

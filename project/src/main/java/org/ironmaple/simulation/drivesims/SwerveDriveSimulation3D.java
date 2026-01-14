@@ -3,6 +3,7 @@ package org.ironmaple.simulation.drivesims;
 import static edu.wpi.first.units.Units.*;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
@@ -11,8 +12,10 @@ import edu.wpi.first.units.measure.*;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.ironmaple.simulation.debugging.SimDebugLogger;
 import org.ironmaple.simulation.drivesims.configs.DriveTrainSimulationConfig;
 import org.ironmaple.simulation.physics.PhysicsEngine;
+import org.ironmaple.simulation.physics.bullet.BulletBody;
 
 /**
  *
@@ -36,8 +39,8 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
 
     // ==================== Suspension Parameters ====================
 
-    /** Suspension spring constant (N/m). Tuned for ~50kg robot. */
-    private static final double SUSPENSION_STIFFNESS = 20000.0;
+    /** Suspension spring constant (N/m). Reduced for softer ride and less oscillation. */
+    private static final double SUSPENSION_STIFFNESS = 10000.0;
 
     /** Target damping ratio. 0.7 = slightly underdamped (responsive feel). */
     private static final double TARGET_DAMPING_RATIO = 0.7;
@@ -52,10 +55,10 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
      * Rest length of suspension (meters). Equilibrium Z = chassisHeight + restLength + wheelRadius - compression at
      * rest
      */
-    private static final double SUSPENSION_REST_LENGTH = 0.03;
+    private static final double SUSPENSION_REST_LENGTH = 0.05;
 
     /** Maximum suspension compression/extension (meters). */
-    private static final double SUSPENSION_MAX_TRAVEL = 0.08;
+    private static final double SUSPENSION_MAX_TRAVEL = 0.1;
 
     /** Wheel radius (meters). */
     private static final double WHEEL_RADIUS = 0.0508; // 2 inch wheel
@@ -90,19 +93,132 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
     public void simulationSubTick(int subTickNum) {
         if (physicsBody == null || physicsEngine == null) return;
 
+        SimDebugLogger.incrementTick();
+
+        // Get current pose and velocities for logging
+        var pose3d = physicsBody.getPose3d();
+        var rotation = pose3d.getRotation();
+        Rotation2d heading2d = rotation.toRotation2d();
+        Translation3d linearVel = physicsBody.getLinearVelocityMPS();
+
+        // Get yaw rate - IMPORTANT: Use raw Z component, not Rotation3d.getZ() which is
+        // corrupted!
+        double yawRateOld = physicsBody.getAngularVelocityRadPerSec().getZ(); // Old (potentially wrong) method
+        double yawRateNew =
+                (physicsBody instanceof BulletBody) ? ((BulletBody) physicsBody).getRawAngularVelocityZ() : yawRateOld;
+
+        // Log every 50 ticks to avoid spam (10x per second at 500Hz sim rate)
+        if (subTickNum == 0) {
+            SimDebugLogger.logPose(String.format(
+                    "X=%.3f Y=%.3f Z=%.3f Yaw=%.1f° Roll=%.1f° Pitch=%.1f°",
+                    pose3d.getX(),
+                    pose3d.getY(),
+                    pose3d.getZ(),
+                    Math.toDegrees(heading2d.getRadians()),
+                    Math.toDegrees(rotation.getX()),
+                    Math.toDegrees(rotation.getY())));
+
+            SimDebugLogger.logVelocity(String.format(
+                    "Linear: vx=%.3f vy=%.3f vz=%.3f | YawRate: old=%.3f new=%.3f rad/s",
+                    linearVel.getX(), linearVel.getY(), linearVel.getZ(), yawRateOld, yawRateNew));
+
+            SimDebugLogger.logHeading(
+                    String.format("Heading2d=%.1f° (from toRotation2d)", Math.toDegrees(heading2d.getRadians())));
+        }
+
         // Apply suspension and traction forces
         simulateModules();
 
-        // Update gyro with yaw rate (angular velocity around world Z axis)
-        // Note: getZ() on Rotation3d returns the yaw component correctly for angular
-        // velocity
-        gyroSimulation.updateSimulationSubTick(
-                physicsBody.getAngularVelocityRadPerSec().getZ());
+        // Update gyro with yaw rate - USE THE NEW RAW VALUE
+        gyroSimulation.updateSimulationSubTick(yawRateNew);
     }
 
     /** Calculates the critical damping coefficient for a given mass per wheel. c_crit = 2 * sqrt(k * m) */
     private double calculateCriticalDamping(double massPerWheelKg) {
         return 2.0 * Math.sqrt(SUSPENSION_STIFFNESS * massPerWheelKg);
+    }
+
+    /**
+     *
+     *
+     * <h2>Rotates a Point by a 3D Rotation.</h2>
+     */
+    private Translation3d rotatePoint(Translation3d point, edu.wpi.first.math.geometry.Rotation3d rotation) {
+        // Use quaternion rotation
+        var quaternion = rotation.getQuaternion();
+        double qw = quaternion.getW(), qx = quaternion.getX(), qy = quaternion.getY(), qz = quaternion.getZ();
+        double px = point.getX(), py = point.getY(), pz = point.getZ();
+
+        // Quaternion rotation: q * p * q^-1
+        double rx = qw * qw * px
+                + 2 * qy * qw * pz
+                - 2 * qz * qw * py
+                + qx * qx * px
+                + 2 * qy * qx * py
+                + 2 * qz * qx * pz
+                - qz * qz * px
+                - qy * qy * px;
+        double ry = 2 * qx * qy * px
+                + qy * qy * py
+                + 2 * qz * qy * pz
+                + 2 * qw * qz * px
+                - qz * qz * py
+                + qw * qw * py
+                - 2 * qx * qw * pz
+                - qx * qx * py;
+        double rz = 2 * qx * qz * px
+                + 2 * qy * qz * py
+                + qz * qz * pz
+                - 2 * qw * qy * px
+                - qy * qy * pz
+                + 2 * qw * qx * py
+                - qx * qx * pz
+                + qw * qw * pz;
+
+        return new Translation3d(rx, ry, rz);
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets the Maximum Linear Velocity.</h2>
+     */
+    public LinearVelocity maxLinearVelocity() {
+        return moduleSimulations[0].config.maximumGroundSpeed();
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets the Maximum Angular Velocity.</h2>
+     */
+    public AngularVelocity maxAngularVelocity() {
+        return RadiansPerSecond.of(maxLinearVelocity().in(MetersPerSecond)
+                / config.driveBaseRadius().in(Meters));
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets the 3D Pose Adjusted for Ground-Level Visualization.</h2>
+     *
+     * <p>Overridden to account for suspension rest length and wheel radius.
+     *
+     * @return the 3D pose such that Z=0 corresponds to the bottom of the wheels at rest
+     */
+    @Override
+    public Pose3d getSimulatedDriveTrainPose3dGroundRelative() {
+        if (physicsBody == null) return new Pose3d();
+        Pose3d physicsPose = physicsBody.getPose3d();
+
+        // Calculate offset from center of mass to bottom of wheels at rest
+        // zOffset = (chassisBodyHeight / 2) + SUSPENSION_REST_LENGTH + WHEEL_RADIUS
+        // Note: chassisBodyHeight is in the superclass, we assume CHASSIS_HEIGHT is
+        // consistent
+        double zOffset = (CHASSIS_HEIGHT / 2.0) + SUSPENSION_REST_LENGTH + WHEEL_RADIUS;
+
+        return new Pose3d(
+                physicsPose.getX(), physicsPose.getY(), physicsPose.getZ() - zOffset, physicsPose.getRotation());
     }
 
     /**
@@ -195,66 +311,19 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
             // Apply traction force in 3D (XY plane for flat ground)
             Translation3d tractionForce3d = new Translation3d(tractionForce2d.x, tractionForce2d.y, 0);
             physicsBody.applyForceAtPoint(tractionForce3d, worldMountPoint);
+
+            // Debug logging for forces (only log module 0 to reduce spam)
+            if (i == 0) {
+                SimDebugLogger.logForce(String.format(
+                        "Mod0: suspension=%.1fN traction=(%.1f,%.1f)N groundVel=(%.3f,%.3f)m/s heading=%.1f°",
+                        normalForceNewtons,
+                        tractionForce2d.x,
+                        tractionForce2d.y,
+                        groundVelocity2d.x,
+                        groundVelocity2d.y,
+                        Math.toDegrees(robotHeading.getRadians())));
+            }
         }
-    }
-
-    /**
-     *
-     *
-     * <h2>Rotates a Point by a 3D Rotation.</h2>
-     */
-    private Translation3d rotatePoint(Translation3d point, edu.wpi.first.math.geometry.Rotation3d rotation) {
-        // Use quaternion rotation
-        var quaternion = rotation.getQuaternion();
-        double qw = quaternion.getW(), qx = quaternion.getX(), qy = quaternion.getY(), qz = quaternion.getZ();
-        double px = point.getX(), py = point.getY(), pz = point.getZ();
-
-        // Quaternion rotation: q * p * q^-1
-        double rx = qw * qw * px
-                + 2 * qy * qw * pz
-                - 2 * qz * qw * py
-                + qx * qx * px
-                + 2 * qy * qx * py
-                + 2 * qz * qx * pz
-                - qz * qz * px
-                - qy * qy * px;
-        double ry = 2 * qx * qy * px
-                + qy * qy * py
-                + 2 * qz * qy * pz
-                + 2 * qw * qz * px
-                - qz * qz * py
-                + qw * qw * py
-                - 2 * qx * qw * pz
-                - qx * qx * py;
-        double rz = 2 * qx * qz * px
-                + 2 * qy * qz * py
-                + qz * qz * pz
-                - 2 * qw * qy * px
-                - qy * qy * pz
-                + 2 * qw * qx * py
-                - qx * qx * pz
-                + qw * qw * pz;
-
-        return new Translation3d(rx, ry, rz);
-    }
-
-    /**
-     *
-     *
-     * <h2>Gets the Maximum Linear Velocity.</h2>
-     */
-    public LinearVelocity maxLinearVelocity() {
-        return moduleSimulations[0].config.maximumGroundSpeed();
-    }
-
-    /**
-     *
-     *
-     * <h2>Gets the Maximum Angular Velocity.</h2>
-     */
-    public AngularVelocity maxAngularVelocity() {
-        return RadiansPerSecond.of(maxLinearVelocity().in(MetersPerSecond)
-                / config.driveBaseRadius().in(Meters));
     }
 
     /**

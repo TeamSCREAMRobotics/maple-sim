@@ -96,9 +96,8 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
         double massKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
         this.physicsBody = physicsEngine.createDynamicBody(shape, massKg, pose3d);
 
-        // Apply light damping to prevent drift (values similar to 2D simulation)
-        // Linear damping prevents slow velocity drift, angular damping prevents
-        // rotation drift
+        // Apply light damping to prevent drift (0.1 is standard value)
+        // Bullet damping range is [0, 1] where 1 stops object immediately.
         physicsBody.setDamping(0.1, 0.1);
 
         // Register as a custom simulation for sub-tick updates
@@ -152,11 +151,35 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
      *
      * <h2>Gets the Actual 3D Pose of the Drivetrain.</h2>
      *
-     * @return the 3D pose in the simulation
+     * <p>Returns the physics body center of mass pose. For visualization where Z=0 is ground, use
+     * {@link #getSimulatedDriveTrainPose3dGroundRelative()} instead.
+     *
+     * @return the 3D pose in the simulation (center of mass)
      */
     public Pose3d getSimulatedDriveTrainPose3d() {
         if (physicsBody == null) return new Pose3d();
         return physicsBody.getPose3d();
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets the 3D Pose Adjusted for Ground-Level Visualization.</h2>
+     *
+     * <p>For AdvantageScope and similar tools where robot models have their origin at the bottom (wheel contact point),
+     * this method returns a pose with Z adjusted so Z=0 represents the bottom of the robot at rest on flat ground.
+     *
+     * @return the 3D pose adjusted for ground-relative visualization
+     */
+    public Pose3d getSimulatedDriveTrainPose3dGroundRelative() {
+        if (physicsBody == null) return new Pose3d();
+        Pose3d physicsPose = physicsBody.getPose3d();
+        // Subtract the chassis center height above ground
+        // At rest: Z_center = chassisBodyHeight/2 + (wheel radius + suspension)
+        // For visualization, we want the bottom of the robot at Z=0
+        double zOffset = chassisBodyHeight / 2;
+        return new Pose3d(
+                physicsPose.getX(), physicsPose.getY(), physicsPose.getZ() - zOffset, physicsPose.getRotation());
     }
 
     /**

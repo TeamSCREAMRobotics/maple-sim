@@ -19,7 +19,7 @@ import org.ironmaple.simulation.motorsims.*;
  *
  * <h2>Simulation for a Single Swerve Module.</h2>
  *
- * <p>Check <a href='https://shenzhen-robotics-alliance.github.io/maple-sim/swerve-sim-hardware-abstraction/'>Online
+ * <p>Check <a href= 'https://shenzhen-robotics-alliance.github.io/maple-sim/swerve-sim-hardware-abstraction/'>Online
  * Documentation</a>
  *
  * <p>This class provides a simulation for a single swerve module in the {@link SwerveDriveSimulation}.
@@ -45,14 +45,14 @@ import org.ironmaple.simulation.motorsims.*;
  *   <li>Retrieve the encoder readings from {@link #getDriveEncoderUnGearedPosition()}} and
  *       {@link #getSteerAbsoluteFacing()}.
  *   <li>Use {@link SwerveDriveOdometry} to estimate the pose of your robot.
- *   <li><a
- *       href="https://v6.docs.ctr-electronics.com/en/latest/docs/application-notes/update-frequency-impact.html">250Hz
+ *   <li><a href=
+ *       "https://v6.docs.ctr-electronics.com/en/latest/docs/application-notes/update-frequency-impact.html">250Hz
  *       Odometry</a> is supported. You can retrive cached encoder readings from every sub-tick through
  *       {@link #getCachedDriveEncoderUnGearedPositions()} and {@link #getCachedSteerAbsolutePositions()}.
  * </ul>
  *
- * <p>An example of how to simulate odometry using this class is the <a
- * href='https://github.com/Shenzhen-Robotics-Alliance/maple-sim/blob/main/templates/AdvantageKit_AdvancedSwerveDriveProject/src/main/java/frc/robot/subsystems/drive/ModuleIOSim.java'>ModuleIOSim.java</a>
+ * <p>An example of how to simulate odometry using this class is the <a href=
+ * 'https://github.com/Shenzhen-Robotics-Alliance/maple-sim/blob/main/templates/AdvantageKit_AdvancedSwerveDriveProject/src/main/java/frc/robot/subsystems/drive/ModuleIOSim.java'>ModuleIOSim.java</a>
  * from the <code>Advanced Swerve Drive with maple-sim</code> example.
  */
 public class SwerveModuleSimulation {
@@ -165,7 +165,7 @@ public class SwerveModuleSimulation {
         final double grippingForceNewtons = config.getGrippingForceNewtons(gravityForceOnModuleNewtons);
         final Rotation2d moduleWorldFacing = this.getSteerAbsoluteFacing().plus(robotFacing);
         final Vector2 propellingForce =
-                getPropellingForce(grippingForceNewtons, moduleWorldFacing, moduleCurrentGroundVelocityWorldRelative);
+                getModuleForce(grippingForceNewtons, moduleWorldFacing, moduleCurrentGroundVelocityWorldRelative);
 
         /* Step3: Updates and caches the encoder readings for odometry simulation. */
         updateEncoderCaches();
@@ -189,30 +189,71 @@ public class SwerveModuleSimulation {
      * @param moduleCurrentGroundVelocity the current ground velocity of the module, world-reference
      * @return a vector representing the propelling force that the module generates, world-reference
      */
-    private Vector2 getPropellingForce(
+    private Vector2 getModuleForce(
             double grippingForceNewtons, Rotation2d moduleWorldFacing, Vector2 moduleCurrentGroundVelocity) {
-        final double driveWheelTorque = getDriveWheelTorque();
-        double propellingForceNewtons = driveWheelTorque / config.WHEEL_RADIUS.in(Meters);
-        final boolean skidding = Math.abs(propellingForceNewtons) > grippingForceNewtons;
-        if (skidding) propellingForceNewtons = Math.copySign(grippingForceNewtons, propellingForceNewtons);
-
+        // --- 1. Longitudinal Force (Driving/Braking) ---
         final double floorVelocityProjectionOnWheelDirectionMPS = moduleCurrentGroundVelocity.getMagnitude()
                 * Math.cos(moduleCurrentGroundVelocity.getAngleBetween(new Vector2(moduleWorldFacing.getRadians())));
 
-        // if the chassis is tightly gripped on floor, the floor velocity is projected to the wheel
+        // if the chassis is tightly gripped on floor, the floor velocity is projected
+        // to the wheel
         this.driveWheelFinalSpeed =
                 RadiansPerSecond.of(floorVelocityProjectionOnWheelDirectionMPS / config.WHEEL_RADIUS.in(Meters));
 
-        // if the module is skidding
+        final double driveWheelTorque = getDriveWheelTorque();
+        double longitudinalForceNewtons = driveWheelTorque / config.WHEEL_RADIUS.in(Meters);
+
+        // --- 2. Lateral Force (Cornering/Scrub) ---
+        // Calculate velocity component perpendicular to the wheel
+        // Vector pointing to the left of the wheel
+        Vector2 wheelLeftDirection =
+                new Vector2(moduleWorldFacing.plus(Rotation2d.fromDegrees(90)).getRadians());
+        double lateralVelocityMPS = moduleCurrentGroundVelocity.dot(wheelLeftDirection);
+
+        // Apply "Stiffness" or friction to oppose lateral motion
+        // Simple model: Force = -k * velocity, clamped by grip
+        // Using a high stiffness to approximate "no slip" under grip limit
+        final double CORNERING_STIFFNESS = 500.0; // N per m/s
+        double lateralForceNewtons = -lateralVelocityMPS * CORNERING_STIFFNESS;
+
+        // --- 3. Traction Circle (Grip Limit) ---
+        // We have two force components: longitudinal and lateral.
+        // We must ensure the MAGNITUDE of the total force does not exceed
+        // grippingForceNewtons.
+
+        // Priority: Usually longitudinal (driving) force wins in simple sims, or we
+        // scale both.
+        // Here we clamp longitudinal first (burnout check), then use remaining grip for
+        // lateral.
+
+        boolean skidding = Math.abs(longitudinalForceNewtons) > grippingForceNewtons;
+        if (skidding) {
+            longitudinalForceNewtons = Math.copySign(grippingForceNewtons, longitudinalForceNewtons);
+            // If all grip is used for driving, no grip left for cornering
+            lateralForceNewtons = 0;
+        } else {
+            // Calculate remaining grip
+            double availableGripSquared = Math.pow(grippingForceNewtons, 2) - Math.pow(longitudinalForceNewtons, 2);
+            double availableGrip = Math.sqrt(Math.max(0, availableGripSquared));
+
+            // Clamp lateral force
+            lateralForceNewtons = MathUtil.clamp(lateralForceNewtons, -availableGrip, availableGrip);
+        }
+
+        // if the module is skidding (longitudinally)
         if (skidding) {
             final AngularVelocity skiddingEquilibriumWheelSpeed = config.driveMotorConfigs.calculateMechanismVelocity(
                     config.driveMotorConfigs.calculateCurrent(
-                            NewtonMeters.of(propellingForceNewtons * config.WHEEL_RADIUS.in(Meters))),
+                            NewtonMeters.of(longitudinalForceNewtons * config.WHEEL_RADIUS.in(Meters))),
                     driveMotorAppliedVoltage);
             this.driveWheelFinalSpeed = driveWheelFinalSpeed.times(0.5).plus(skiddingEquilibriumWheelSpeed.times(0.5));
         }
 
-        return Vector2.create(propellingForceNewtons, moduleWorldFacing.getRadians());
+        // Combine forces into World Frame Vector
+        Vector2 longitudinalVector = Vector2.create(longitudinalForceNewtons, moduleWorldFacing.getRadians());
+        Vector2 lateralVector = wheelLeftDirection.product(lateralForceNewtons);
+
+        return longitudinalVector.sum(lateralVector);
     }
 
     /**
@@ -239,11 +280,22 @@ public class SwerveModuleSimulation {
         Torque driveWheelTorque = config.driveMotorConfigs.calculateTorque(driveMotorStatorCurrent);
 
         /* calculates the torque if you included losses from friction */
-        Torque driveWheelTorqueWithFriction = NewtonMeters.of(MathUtil.applyDeadband(
-                driveWheelTorque.in(NewtonMeters),
-                config.driveMotorConfigs.friction.in(NewtonMeters),
-                Double.POSITIVE_INFINITY));
-        return driveWheelTorqueWithFriction.in(NewtonMeters);
+        double frictionTorqueNm = config.driveMotorConfigs.friction.in(NewtonMeters);
+        double wheelSpeedRadPerSec = driveWheelFinalSpeed.in(RadiansPerSecond);
+
+        double driveWheelTorqueWithFriction;
+        // Kinetic friction: if moving, friction opposes motion
+        if (Math.abs(wheelSpeedRadPerSec) > 1e-3) {
+            driveWheelTorqueWithFriction =
+                    driveWheelTorque.in(NewtonMeters) - (frictionTorqueNm * Math.signum(wheelSpeedRadPerSec));
+        }
+        // Static friction: use deadband
+        else {
+            driveWheelTorqueWithFriction = MathUtil.applyDeadband(
+                    driveWheelTorque.in(NewtonMeters), frictionTorqueNm, Double.POSITIVE_INFINITY);
+        }
+
+        return driveWheelTorqueWithFriction;
     }
 
     /** @return the current module state of this simulation module */

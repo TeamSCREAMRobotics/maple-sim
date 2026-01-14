@@ -79,15 +79,11 @@ public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
 
         // Blue Hub
         Translation2d blueHubPos = RebuiltHub.BLUE_HUB_POS.toTranslation2d();
-        addBox(
-                new Translation3d(1.19 / 2, 1.19 / 2, 0.5),
-                new Pose3d(blueHubPos.getX(), blueHubPos.getY(), 0.5, new Rotation3d()));
+        addObstacle("meshes/hub.obj", new Pose3d(blueHubPos.getX(), blueHubPos.getY(), 0, new Rotation3d()));
 
         // Red Hub
         Translation2d redHubPos = RebuiltHub.RED_HUB_POS.toTranslation2d();
-        addBox(
-                new Translation3d(1.19 / 2, 1.19 / 2, 0.5),
-                new Pose3d(redHubPos.getX(), redHubPos.getY(), 0.5, new Rotation3d()));
+        addObstacle("meshes/hub.obj", new Pose3d(redHubPos.getX(), redHubPos.getY(), 0, new Rotation3d(0, 0, Math.PI)));
 
         // Blue Tower Poles
         // 2D: size 2" x 47", pos (42", 159")
@@ -106,6 +102,22 @@ public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
         addBox(
                 new Translation3d(polesWidth / 2, polesHeight / 2, poleZHeight / 2),
                 new Pose3d(redPolePos.getX(), redPolePos.getY(), poleZHeight / 2, new Rotation3d()));
+
+        // --- Custom V-HACD Meshes ---
+        // Placeholders - User to provide actual paths and poses
+        // To use: ensure meshes are in src/main/resources/meshes/
+        // Pose3d corresponds to the (0,0,0) origin of the OBJ file.
+
+        /*
+         * Example:
+         * addObstacle("meshes/reef.obj", new Pose3d(0, 0, 0, new Rotation3d()));
+         * addObstacle("meshes/coral_station.obj", new Pose3d(0, 0, 0, new
+         * Rotation3d()));
+         */
+    }
+
+    public void addObstacle(String meshResourcePath, Pose3d pose) {
+        getObstacles().add(new Obstacle(meshResourcePath, pose));
     }
 
     private void addBorderLine(Translation3d center, Translation3d size) {

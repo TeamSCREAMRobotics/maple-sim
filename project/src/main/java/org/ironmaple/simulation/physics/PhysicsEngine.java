@@ -136,6 +136,19 @@ public interface PhysicsEngine {
     /**
      *
      *
+     * <h2>Creates a Compound Shape from an OBJ Mesh.</h2>
+     *
+     * <p>Parses the OBJ file at the given resource path. Each object/group in the OBJ is treated as a separate convex
+     * hull.
+     *
+     * @param resourcePath the classpath resource path to the OBJ file
+     * @return the created compound shape
+     */
+    PhysicsShape createCompoundShapeFromMesh(String resourcePath);
+
+    /**
+     *
+     *
      * <h2>Performs a Raycast.</h2>
      *
      * <p>Casts a ray from the origin in the specified direction and returns the closest hit.
