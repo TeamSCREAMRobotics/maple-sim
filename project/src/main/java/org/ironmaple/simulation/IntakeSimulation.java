@@ -5,6 +5,10 @@ import static edu.wpi.first.units.Units.Meters;
 import static edu.wpi.first.units.Units.Volts;
 
 import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Pose3d;
+import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.units.measure.Voltage;
@@ -27,6 +31,7 @@ import org.dyn4j.world.ContactCollisionData;
 import org.dyn4j.world.listener.ContactListener;
 import org.ironmaple.simulation.drivesims.AbstractDriveTrainSimulation;
 import org.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
+import org.ironmaple.simulation.gamepieces.GamePieceState;
 import org.ironmaple.simulation.motorsims.MapleMotorSim;
 import org.ironmaple.simulation.motorsims.SimMotorConfigs;
 import org.ironmaple.simulation.motorsims.SimulatedBattery;
@@ -403,6 +408,7 @@ public class IntakeSimulation extends BodyFixture {
 
         private void flagGamePieceForRemoval(GamePieceOnFieldSimulation gamePiece) {
             if (!customIntakeCondition.test(gamePiece)) return;
+            if (gamePiecesToRemove.contains(gamePiece)) return; // Prevent duplicate counting
             gamePiecesToRemove.add(gamePiece);
             gamePiecesInIntakeCount++;
         }
@@ -454,6 +460,10 @@ public class IntakeSimulation extends BodyFixture {
         while (!gamePiecesToRemove.isEmpty()) {
             GamePieceOnFieldSimulation gamePiece = gamePiecesToRemove.poll();
             gamePiece.onIntake(this.targetedGamePieceType);
+
+            // Notify manager of transition from field to intake
+            arena.getGamePieceManager().createVirtual(this.targetedGamePieceType, GamePieceState.IN_INTAKE, this);
+
             arena.removeGamePiece(gamePiece);
         }
     }
@@ -473,6 +483,30 @@ public class IntakeSimulation extends BodyFixture {
      */
     public boolean isRunning() {
         return intakeRunning;
+    }
+
+    /**
+     *
+     *
+     * <h2>Supplies poses for game pieces currently held in this intake.</h2>
+     *
+     * <p>Use this method to visualize pieces inside the robot in AdvantageScope.
+     *
+     * @param type the game piece type to query
+     * @param poseList the list to add poses to
+     * @param robotPose the current robot pose in world coordinates
+     * @param pieceOffsetInRobot the offset of pieces within the robot frame
+     */
+    public void supplyRobotPoses(String type, List<Pose3d> poseList, Pose2d robotPose, Pose3d pieceOffsetInRobot) {
+        if (!type.equals(targetedGamePieceType)) return;
+        Pose3d robotPose3d = new Pose3d(robotPose);
+        for (int i = 0; i < gamePiecesInIntakeCount; i++) {
+            // Stack pieces visually with slight offset
+            Transform3d offset = new Transform3d(
+                    pieceOffsetInRobot.getTranslation().plus(new Translation3d(0, 0, i * 0.05)),
+                    pieceOffsetInRobot.getRotation());
+            poseList.add(robotPose3d.plus(offset));
+        }
     }
 
     /**

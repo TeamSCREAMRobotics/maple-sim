@@ -27,6 +27,7 @@ import org.dyn4j.world.PhysicsWorld;
 import org.dyn4j.world.World;
 import org.ironmaple.simulation.drivesims.AbstractDriveTrainSimulation;
 import org.ironmaple.simulation.gamepieces.GamePiece;
+import org.ironmaple.simulation.gamepieces.GamePieceManager;
 import org.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation;
 import org.ironmaple.simulation.gamepieces.GamePieceProjectile;
 import org.ironmaple.simulation.motorsims.SimulatedBattery;
@@ -218,6 +219,7 @@ public abstract class SimulatedArena {
     protected final List<Simulatable> customSimulations;
 
     private final List<IntakeSimulation> intakeSimulations;
+    protected final GamePieceManager gamePieceManager;
 
     /**
      *
@@ -238,6 +240,7 @@ public abstract class SimulatedArena {
         customSimulations = new ArrayList<>();
         this.gamePieces = new HashSet<>();
         this.intakeSimulations = new ArrayList<>();
+        this.gamePieceManager = new GamePieceManager();
         setupValueForMatchBreakdown("TotalScore");
         setupValueForMatchBreakdown("TeleopScore");
         setupValueForMatchBreakdown("Auto/AutoScore");
@@ -334,6 +337,7 @@ public abstract class SimulatedArena {
     public synchronized void addGamePiece(GamePieceOnFieldSimulation gamePiece) {
         this.physicsWorld.addBody(gamePiece);
         this.gamePieces.add(gamePiece);
+        this.gamePieceManager.spawnOnField(gamePiece);
     }
 
     /**
@@ -462,6 +466,7 @@ public abstract class SimulatedArena {
      */
     public synchronized void addGamePieceProjectile(GamePieceProjectile gamePieceProjectile) {
         this.gamePieces.add(gamePieceProjectile);
+        this.gamePieceManager.spawnInFlight(gamePieceProjectile);
         gamePieceProjectile.launch();
     }
 
@@ -512,6 +517,7 @@ public abstract class SimulatedArena {
         for (GamePieceOnFieldSimulation gamePiece : this.gamePiecesOnField()) this.physicsWorld.removeBody(gamePiece);
 
         this.gamePieces.clear();
+        this.gamePieceManager.clearAll();
         this.blueScore = 0;
         this.redScore = 0;
     }
@@ -674,6 +680,33 @@ public abstract class SimulatedArena {
      */
     public synchronized Pose3d[] getGamePiecesArrayByType(String type) {
         return getGamePiecesPosesByType(type).toArray(Pose3d[]::new);
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets all visible game piece poses from all sources.</h2>
+     *
+     * <p>This includes field pieces, robot-held pieces (intakes, shooters), and field element pieces (outposts, etc.)
+     *
+     * @param type the game piece type to query
+     * @return a list of all poses from all sources
+     */
+    public synchronized List<Pose3d> getAllVisibleGamePiecesByType(String type) {
+        List<Pose3d> result = new ArrayList<>(getGamePiecesPosesByType(type));
+        gamePieceManager.getAllPosesByType(type).forEach(result::add);
+        return result;
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets the game piece manager for registering custom pose sources.</h2>
+     *
+     * @return the game piece manager
+     */
+    public GamePieceManager getGamePieceManager() {
+        return gamePieceManager;
     }
 
     /**

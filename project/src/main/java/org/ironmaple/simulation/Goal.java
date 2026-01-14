@@ -9,9 +9,11 @@ import edu.wpi.first.units.Units;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.Distance;
 import java.util.List;
+import java.util.function.Consumer;
 import org.dyn4j.geometry.Rectangle;
 import org.dyn4j.geometry.Vector2;
 import org.ironmaple.simulation.gamepieces.GamePiece;
+import org.ironmaple.simulation.gamepieces.GamePieceState;
 
 /**
  *
@@ -38,6 +40,7 @@ public abstract class Goal implements SimulatedArena.Simulatable {
     protected final double maxZ;
 
     protected final boolean allowGrounded;
+    protected Consumer<GamePiece> onScoredCallback = (gp) -> {};
 
     /**
      *
@@ -138,8 +141,11 @@ public abstract class Goal implements SimulatedArena.Simulatable {
                         gamePiece -> { // If a piece passes, score it.
                             gamePieceCount++;
                             this.addPoints();
+                            this.onScoredCallback.accept(gamePiece);
                             gamePiece.triggerHitTargeCallBack();
-                            ;
+
+                            // Notify manager that piece was scored
+                            arena.getGamePieceManager().createVirtual(gamePieceType, GamePieceState.IN_GOAL, this);
 
                             arena.removePiece(gamePiece);
                         });
@@ -167,6 +173,17 @@ public abstract class Goal implements SimulatedArena.Simulatable {
      */
     public void setNeededAngle(Rotation3d angle) {
         setNeededAngle(angle, pieceAngleTolerance);
+    }
+
+    /**
+     *
+     *
+     * <h2>Sets the callback to be used when a game piece is scored in this goal.</h2>
+     *
+     * @param onScoredCallback The callback to be triggered when a piece is scored.
+     */
+    public void setOnScoredCallback(Consumer<GamePiece> onScoredCallback) {
+        this.onScoredCallback = onScoredCallback;
     }
 
     /**

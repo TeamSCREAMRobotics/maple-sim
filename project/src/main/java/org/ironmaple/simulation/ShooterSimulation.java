@@ -10,6 +10,7 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
@@ -23,6 +24,8 @@ import java.util.function.Supplier;
 import org.ironmaple.simulation.drivesims.AbstractDriveTrainSimulation;
 import org.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation.GamePieceInfo;
 import org.ironmaple.simulation.gamepieces.GamePieceProjectile;
+import org.ironmaple.simulation.gamepieces.GamePieceState;
+import org.ironmaple.simulation.gamepieces.ManagedGamePiece;
 import org.ironmaple.simulation.motorsims.MapleMotorSim;
 import org.ironmaple.simulation.motorsims.SimMotorConfigs;
 
@@ -290,6 +293,28 @@ public class ShooterSimulation implements SimulatedArena.Simulatable {
         return this;
     }
 
+    /**
+     *
+     *
+     * <h2>Supplies poses for game pieces currently loaded in this shooter.</h2>
+     *
+     * <p>Use this method to visualize pieces inside the robot in AdvantageScope.
+     *
+     * @param type the game piece type to query
+     * @param poseList the list to add poses to
+     */
+    public void supplyRobotPoses(String type, List<Pose3d> poseList) {
+        if (!type.equals(gamePieceInfo.type())) return;
+        Pose3d robotPose = new Pose3d(driveTrainSimulation.getSimulatedDriveTrainPose());
+        Pose3d shooterPoseRelative = shooterPoseSupplier.get();
+        for (int i = 0; i < gamePiecesLoaded; i++) {
+            Transform3d offset = new Transform3d(
+                    shooterPoseRelative.getTranslation().plus(new Translation3d(0, 0, i * 0.05)),
+                    shooterPoseRelative.getRotation());
+            poseList.add(robotPose.plus(offset));
+        }
+    }
+
     @Override
     public void simulationSubTick(int subTickNum) {
         // Update motors
@@ -300,9 +325,17 @@ public class ShooterSimulation implements SimulatedArena.Simulatable {
         // Poll intake
         if (intakeSource != null && gamePiecesLoaded < capacity) {
             // Transfer 1 piece per tick if available.
-            // Note: obtainGamePieceFromIntake returns Boolean.
             if (intakeSource.obtainGamePieceFromIntake()) {
                 gamePiecesLoaded++;
+
+                // Transition a piece from IN_INTAKE to IN_SHOOTER in manager
+                List<ManagedGamePiece> intakePieces =
+                        SimulatedArena.getInstance().getGamePieceManager().getByOwner(intakeSource);
+                if (!intakePieces.isEmpty()) {
+                    ManagedGamePiece piece = intakePieces.get(0);
+                    piece.setState(GamePieceState.IN_SHOOTER);
+                    piece.setOwner(this);
+                }
             }
         }
     }
