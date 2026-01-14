@@ -32,6 +32,7 @@ public class IntakeSimulation3D implements SimulatedArena3D.Simulatable {
     private Predicate<GamePieceOnFieldSimulation3D> customIntakeCondition = gp -> true;
 
     private final PhysicsEngine physicsEngine;
+    private final SimulatedArena3D arena;
 
     /**
      *
@@ -60,6 +61,7 @@ public class IntakeSimulation3D implements SimulatedArena3D.Simulatable {
         this.gamePiecesInIntakeCount = 0;
         this.gamePiecesToRemove = new ArrayDeque<>();
         this.physicsEngine = arena.getPhysicsEngine();
+        this.arena = arena;
 
         arena.addCustomSimulation(this);
     }
@@ -82,6 +84,24 @@ public class IntakeSimulation3D implements SimulatedArena3D.Simulatable {
         this.intakeRunning = false;
     }
 
+    /**
+     * Gets the number of game pieces currently in the intake.
+     *
+     * @return number of game pieces
+     */
+    public int getGamePiecesInIntake() {
+        return gamePiecesInIntakeCount;
+    }
+
+    /**
+     * Checks if the intake is running.
+     *
+     * @return true if running
+     */
+    public boolean isRunning() {
+        return intakeRunning;
+    }
+
     @Override
     public void simulationSubTick(int subTickNum) {
         if (!intakeRunning || gamePiecesInIntakeCount >= capacity) return;
@@ -93,6 +113,19 @@ public class IntakeSimulation3D implements SimulatedArena3D.Simulatable {
         // Check for overlaps
         List<PhysicsBody> overlaps = physicsEngine.getOverlappingBodies(intakeShape, intakePose);
 
+        // Debug logging (once per second, ~every 50 ticks at 50Hz)
+        // if (subTickNum == 0) {
+        // System.out.printf(
+        // "[IntakeSimulation3D] Running=%b, IntakePose=(%.2f, %.2f, %.2f), Overlaps=%d,
+        // InIntake=%d%n",
+        // intakeRunning,
+        // intakePose.getX(),
+        // intakePose.getY(),
+        // intakePose.getZ(),
+        // overlaps.size(),
+        // gamePiecesInIntakeCount);
+        // }
+
         for (PhysicsBody body : overlaps) {
             Object userData = body.getUserData();
             if (userData instanceof GamePieceOnFieldSimulation3D gp) {
@@ -100,13 +133,44 @@ public class IntakeSimulation3D implements SimulatedArena3D.Simulatable {
                     if (!gamePiecesToRemove.contains(gp)) {
                         gamePiecesToRemove.add(gp);
                         gamePiecesInIntakeCount++;
+                        System.out.printf(
+                                "[IntakeSimulation3D] Collected game piece! Type=%s, Now have %d%n",
+                                gp.getType(), gamePiecesInIntakeCount);
                         if (gamePiecesInIntakeCount >= capacity) break;
                     }
                 }
+            } else {
+                // Log what types of bodies we're finding (to debug if game pieces aren't being
+                // recognized)
+                if (subTickNum == 0) {
+                    System.out.printf(
+                            "[IntakeSimulation3D] Overlap detected but userData=%s (not a game piece)%n",
+                            userData != null ? userData.getClass().getSimpleName() : "null");
+                }
             }
+        }
+
+        // Immediately remove collected pieces from the field
+        removeObtainedGamePiecesInternal();
+    }
+
+    /** Internal method to remove pieces from physics engine AND display list. */
+    private void removeObtainedGamePiecesInternal() {
+        while (!gamePiecesToRemove.isEmpty()) {
+            GamePieceOnFieldSimulation3D gp = gamePiecesToRemove.poll();
+            // Use arena.removePiece to properly clean up both physics and display
+            arena.removePiece(gp);
+            System.out.printf("[IntakeSimulation3D] Removed game piece from field (physics + display)%n");
         }
     }
 
+    /**
+     *
+     *
+     * <h2>Removes obtained game pieces.</h2>
+     *
+     * <p>Called by arena or manually.
+     */
     /**
      *
      *
@@ -120,5 +184,39 @@ public class IntakeSimulation3D implements SimulatedArena3D.Simulatable {
             arena.getPhysicsEngine().removeBody(gp.getPhysicsBody());
             // Add logic to move to internal storage or notify manager
         }
+    }
+
+    /**
+     *
+     *
+     * <h2>Obtains a game piece from the intake.</h2>
+     *
+     * <p>Called by consumers (like ShooterSimulation3D) to take a piece from the intake.
+     *
+     * @return true if a piece was successfully obtained
+     */
+    public boolean obtainGamePieceFromIntake() {
+        if (gamePiecesInIntakeCount > 0) {
+            gamePiecesInIntakeCount--;
+            // If we have specific pieces tracked, we might want to remove them from the
+            // queue
+            // But since 'gamePiecesToRemove' tracks pieces to be removed from FIELD,
+            // we should probably ensure they ARE removed from field if they are transferred
+            // to shooter.
+            // If 'obtain' is called, it implies the piece is entering the robot system.
+            // So we should effectively ensure the piece is gone from the field.
+
+            // If gamePiecesToRemove is used solely for "cleanup from field",
+            // and we rely on 'removeObtainedGamePieces' being called periodically (e.g. by
+            // subsystem or arena),
+            // then we just decrement the count here representing "in-robot storage"
+            // transfer.
+
+            // However, to be safe and consistent:
+            // If the intake logic is "accumulate in intake until full",
+            // and shooter says "give me one", intake gives one.
+            return true;
+        }
+        return false;
     }
 }

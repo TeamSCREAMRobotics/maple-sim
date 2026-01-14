@@ -161,6 +161,21 @@ public interface PhysicsEngine {
     Optional<RaycastResult> raycast(Translation3d origin, Translation3d direction, double maxDistance);
 
     /**
+     * Performs a raycast excluding a specific body (useful for avoiding self-collision).
+     *
+     * @param origin the ray origin in world coordinates
+     * @param direction the ray direction (will be normalized)
+     * @param maxDistance the maximum distance to check
+     * @param excludeBody the body to exclude from raycast results (can be null)
+     * @return the raycast result, or empty if no hit
+     */
+    default Optional<RaycastResult> raycast(
+            Translation3d origin, Translation3d direction, double maxDistance, PhysicsBody excludeBody) {
+        // Default implementation ignores excludeBody - subclasses should override
+        return raycast(origin, direction, maxDistance);
+    }
+
+    /**
      *
      *
      * <h2>Sets the Global Gravity.</h2>

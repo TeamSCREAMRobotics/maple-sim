@@ -32,15 +32,28 @@ import org.ironmaple.simulation.physics.PhysicsShape;
 public class BulletPhysicsEngine implements PhysicsEngine {
     private PhysicsSpace physicsSpace;
     private boolean initialized = false;
+    private static boolean libraryLoaded = false;
     private final java.util.Map<com.jme3.bullet.collision.PhysicsCollisionObject, PhysicsBody> bodyMap =
             new java.util.HashMap<>();
 
     @Override
-    public void initialize() {
+    public synchronized void initialize() {
         if (initialized) return;
 
-        // Load the native Bullet library
-        // Load the native Bullet library
+        loadLibrary();
+
+        // Create the physics space with DBVT broadphase (good general-purpose)
+        physicsSpace = new PhysicsSpace(PhysicsSpace.BroadphaseType.DBVT);
+
+        // Default gravity (can be overridden)
+        physicsSpace.setGravity(new Vector3f(0, 0, -9.81f));
+
+        initialized = true;
+    }
+
+    /** Loads the native Bullet library. Safe to call multiple times. */
+    public static synchronized void loadLibrary() {
+        if (libraryLoaded) return;
         try {
             LibraryInfo info = new LibraryInfo(null, "bulletjme", DirectoryPath.USER_DIR);
             NativeBinaryLoader loader = new NativeBinaryLoader(info);
@@ -55,21 +68,14 @@ public class BulletPhysicsEngine implements PhysicsEngine {
             };
             loader.registerNativeLibraries(libraries).initPlatformLibrary();
             loader.loadLibrary(LoadingCriterion.CLEAN_EXTRACTION);
+            libraryLoaded = true;
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Bullet native library", e);
         }
-
-        // Create the physics space with DBVT broadphase (good general-purpose)
-        physicsSpace = new PhysicsSpace(PhysicsSpace.BroadphaseType.DBVT);
-
-        // Default gravity (can be overridden)
-        physicsSpace.setGravity(new Vector3f(0, -9.81f, 0));
-
-        initialized = true;
     }
 
     @Override
-    public void shutdown() {
+    public synchronized void shutdown() {
         if (!initialized) return;
         physicsSpace.destroy();
         physicsSpace = null;
@@ -77,7 +83,7 @@ public class BulletPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
-    public void step(Time deltaTime) {
+    public synchronized void step(Time deltaTime) {
         ensureInitialized();
         float dt = (float) deltaTime.baseUnitMagnitude();
         // Use a fixed sub-step count for stability
@@ -86,8 +92,14 @@ public class BulletPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
-    public PhysicsBody createDynamicBody(PhysicsShape shape, double massKg, Pose3d initialPose) {
-        ensureInitialized();
+    public synchronized PhysicsBody createDynamicBody(PhysicsShape shape, double massKg, Pose3d initialPose) {
+        PhysicsBody body = createDynamicBodyNoAdd(shape, massKg, initialPose);
+        addBody(body);
+        return body;
+    }
+
+    /** Creates a dynamic body without adding it to the physics space. */
+    public PhysicsBody createDynamicBodyNoAdd(PhysicsShape shape, double massKg, Pose3d initialPose) {
         BulletShape bulletShape = (BulletShape) shape;
         PhysicsRigidBody rigidBody = new PhysicsRigidBody(bulletShape.getCollisionShape(), (float) massKg);
 
@@ -95,16 +107,19 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         rigidBody.setPhysicsLocation(toVector3f(initialPose.getTranslation()));
         rigidBody.setPhysicsRotation(toQuaternion(initialPose.getRotation()));
 
-        physicsSpace.addCollisionObject(rigidBody);
         BulletBody body = new BulletBody(rigidBody, false);
-        bodyMap.put(rigidBody, body);
-
         return body;
     }
 
     @Override
-    public PhysicsBody createStaticBody(PhysicsShape shape, Pose3d pose) {
-        ensureInitialized();
+    public synchronized PhysicsBody createStaticBody(PhysicsShape shape, Pose3d pose) {
+        PhysicsBody body = createStaticBodyNoAdd(shape, pose);
+        addBody(body);
+        return body;
+    }
+
+    /** Creates a static body without adding it to the physics space. */
+    public PhysicsBody createStaticBodyNoAdd(PhysicsShape shape, Pose3d pose) {
         BulletShape bulletShape = (BulletShape) shape;
         // Mass of 0 = static body in Bullet
         PhysicsRigidBody rigidBody = new PhysicsRigidBody(bulletShape.getCollisionShape(), 0f);
@@ -112,15 +127,23 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         rigidBody.setPhysicsLocation(toVector3f(pose.getTranslation()));
         rigidBody.setPhysicsRotation(toQuaternion(pose.getRotation()));
 
-        physicsSpace.addCollisionObject(rigidBody);
         BulletBody body = new BulletBody(rigidBody, true);
-        bodyMap.put(rigidBody, body);
-
         return body;
     }
 
+    /** Adds an existing body to the physics space. */
+    public synchronized void addBody(PhysicsBody body) {
+        ensureInitialized();
+        if (body instanceof BulletBody bulletBody) {
+            physicsSpace.addCollisionObject(bulletBody.getRigidBody());
+            bodyMap.put(bulletBody.getRigidBody(), bulletBody);
+        } else {
+            throw new IllegalArgumentException("Unsupported PhysicsBody implementation: " + body.getClass());
+        }
+    }
+
     @Override
-    public void removeBody(PhysicsBody body) {
+    public synchronized void removeBody(PhysicsBody body) {
         ensureInitialized();
         BulletBody bulletBody = (BulletBody) body;
         physicsSpace.removeCollisionObject(bulletBody.getRigidBody());
@@ -128,12 +151,21 @@ public class BulletPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
-    public void removeAllBodies() {
+    public synchronized void removeAllBodies() {
         ensureInitialized();
         for (PhysicsRigidBody body : physicsSpace.getRigidBodyList()) {
             physicsSpace.removeCollisionObject(body);
         }
         bodyMap.clear();
+    }
+
+    /**
+     * Gets all registered physics bodies.
+     *
+     * @return a copy of the collection of all bodies
+     */
+    public synchronized java.util.Collection<PhysicsBody> getBodies() {
+        return new java.util.ArrayList<>(bodyMap.values());
     }
 
     @Override
@@ -235,16 +267,33 @@ public class BulletPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
-    public Optional<RaycastResult> raycast(Translation3d origin, Translation3d direction, double maxDistance) {
+    public synchronized Optional<RaycastResult> raycast(
+            Translation3d origin, Translation3d direction, double maxDistance) {
+        return raycast(origin, direction, maxDistance, null);
+    }
+
+    @Override
+    public synchronized Optional<RaycastResult> raycast(
+            Translation3d origin, Translation3d direction, double maxDistance, PhysicsBody excludeBody) {
         ensureInitialized();
 
         Vector3f from = toVector3f(origin);
         Translation3d normalizedDir = direction.div(direction.getNorm());
         Vector3f to = toVector3f(origin.plus(normalizedDir.times(maxDistance)));
 
-        // Perform raycast
+        // Get the native rigid body to exclude (if any)
+        PhysicsRigidBody excludeRigidBody = null;
+        if (excludeBody instanceof BulletBody bb) {
+            excludeRigidBody = bb.getRigidBody();
+        }
+
+        // Perform raycast, filtering out excluded body
         com.jme3.bullet.collision.PhysicsRayTestResult closest = null;
         for (com.jme3.bullet.collision.PhysicsRayTestResult result : physicsSpace.rayTest(from, to)) {
+            // Skip the excluded body
+            if (excludeRigidBody != null && result.getCollisionObject() == excludeRigidBody) {
+                continue;
+            }
             if (closest == null || result.getHitFraction() < closest.getHitFraction()) {
                 closest = result;
             }
@@ -265,7 +314,6 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         double hitDistance = maxDistance * closest.getHitFraction();
 
         // Find the PhysicsBody wrapper for the hit object
-        // Find the PhysicsBody wrapper for the hit object
         PhysicsRigidBody hitRigidBody = (PhysicsRigidBody) closest.getCollisionObject();
         PhysicsBody hitBody = bodyMap.get(hitRigidBody);
         if (hitBody == null) {
@@ -278,13 +326,13 @@ public class BulletPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
-    public void setGravity(Translation3d gravityMPS2) {
+    public synchronized void setGravity(Translation3d gravityMPS2) {
         ensureInitialized();
         physicsSpace.setGravity(toVector3f(gravityMPS2));
     }
 
     @Override
-    public java.util.List<PhysicsBody> getOverlappingBodies(PhysicsShape shape, Pose3d pose) {
+    public synchronized java.util.List<PhysicsBody> getOverlappingBodies(PhysicsShape shape, Pose3d pose) {
         ensureInitialized();
         BulletShape bulletShape = (BulletShape) shape;
         com.jme3.bullet.objects.PhysicsGhostObject ghost =

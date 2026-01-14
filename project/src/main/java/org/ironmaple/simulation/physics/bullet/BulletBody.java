@@ -6,6 +6,7 @@ import com.jme3.math.Vector3f;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation3d;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.ironmaple.simulation.physics.PhysicsBody;
 
 /**
@@ -16,8 +17,12 @@ import org.ironmaple.simulation.physics.PhysicsBody;
  * <p>Implements the {@link PhysicsBody} interface by wrapping a Bullet {@link PhysicsRigidBody}.
  */
 public class BulletBody implements PhysicsBody {
+    /** Atomic counter for generating unique body IDs. */
+    private static final AtomicInteger ID_COUNTER = new AtomicInteger(0);
+
     private final PhysicsRigidBody rigidBody;
     private final boolean isStatic;
+    private final int bodyId;
     private Object userData;
 
     /**
@@ -31,6 +36,20 @@ public class BulletBody implements PhysicsBody {
     public BulletBody(PhysicsRigidBody rigidBody, boolean isStatic) {
         this.rigidBody = rigidBody;
         this.isStatic = isStatic;
+        this.bodyId = ID_COUNTER.incrementAndGet();
+    }
+
+    /**
+     *
+     *
+     * <h2>Gets the Unique Body ID.</h2>
+     *
+     * <p>Used for tracking bodies across thread boundaries in threaded physics mode.
+     *
+     * @return the unique body ID
+     */
+    public int getBodyId() {
+        return bodyId;
     }
 
     /**

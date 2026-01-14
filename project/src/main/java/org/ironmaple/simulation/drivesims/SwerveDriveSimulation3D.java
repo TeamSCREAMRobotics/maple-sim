@@ -16,6 +16,8 @@ import org.ironmaple.simulation.debugging.SimDebugLogger;
 import org.ironmaple.simulation.drivesims.configs.DriveTrainSimulationConfig;
 import org.ironmaple.simulation.physics.PhysicsEngine;
 import org.ironmaple.simulation.physics.bullet.BulletBody;
+import org.ironmaple.simulation.physics.threading.SimulationState;
+import org.ironmaple.simulation.physics.threading.ThreadedPhysicsProxy;
 
 /**
  *
@@ -36,6 +38,13 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
     protected final GyroSimulation gyroSimulation;
     protected final Translation2d[] moduleTranslations;
     protected final SwerveDriveKinematics kinematics;
+
+    // Track raycast IDs from previous frame (for threaded mode)
+    private int[] lastQueuedRaycastIds;
+
+    // Physics calculator for threaded mode (runs on physics thread)
+    private org.ironmaple.simulation.physics.threading.SwervePhysicsCalculator physicsCalculator;
+    private boolean calculatorRegistered = false;
 
     // ==================== Suspension Parameters ====================
 
@@ -87,6 +96,8 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
         this.gyroSimulation = config.gyroSimulationFactory.get();
 
         this.kinematics = new SwerveDriveKinematics(moduleTranslations);
+        this.lastQueuedRaycastIds = new int[moduleTranslations.length];
+        java.util.Arrays.fill(lastQueuedRaycastIds, -1); // Initialize to invalid
     }
 
     @Override
@@ -95,19 +106,58 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
 
         SimDebugLogger.incrementTick();
 
-        // Get current pose and velocities for logging
-        var pose3d = physicsBody.getPose3d();
+        // Determine threading mode
+        boolean isThreaded = arena != null && arena.isThreaded();
+        ThreadedPhysicsProxy proxy = isThreaded ? arena.getThreadedProxy() : null;
+        SimulationState state = isThreaded ? proxy.getCachedState() : null;
+
+        // Register physics calculator on first tick (threaded mode only)
+        if (isThreaded && !calculatorRegistered && proxy != null) {
+            double robotMassKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
+            physicsCalculator = new org.ironmaple.simulation.physics.threading.SwervePhysicsCalculator(
+                    physicsBody, moduleTranslations, moduleSimulations, robotMassKg);
+            proxy.registerCalculator(physicsCalculator);
+            calculatorRegistered = true;
+            System.out.println("[MapleSim3D] Registered SwervePhysicsCalculator with physics thread");
+        }
+
+        // Get body ID - works for both BulletBody and ThreadedBulletBody
+        int bodyId = -1;
+        if (physicsBody instanceof BulletBody bb) {
+            bodyId = bb.getBodyId();
+        } else if (physicsBody instanceof org.ironmaple.simulation.physics.threading.ThreadedBulletBody tbb) {
+            bodyId = tbb.getBodyId();
+        }
+
+        // Get current pose and velocities
+        Pose3d pose3d;
+        Translation3d linearVel;
+        double yawRate;
+
+        if (isThreaded && state != null && bodyId >= 0) {
+            // Threaded mode: use cached state from physics thread
+            SimulationState.BodyState bodyState = state.getBodyState(bodyId);
+            if (bodyState != null) {
+                pose3d = bodyState.pose();
+                linearVel = bodyState.linearVelocity();
+                yawRate = bodyState.angularVelocity().getZ();
+            } else {
+                // Body not yet in state (first tick), use direct access
+                pose3d = physicsBody.getPose3d();
+                linearVel = physicsBody.getLinearVelocityMPS();
+                yawRate = getYawRate(physicsBody);
+            }
+        } else {
+            // Sync mode: direct physics access
+            pose3d = physicsBody.getPose3d();
+            linearVel = physicsBody.getLinearVelocityMPS();
+            yawRate = getYawRate(physicsBody);
+        }
+
         var rotation = pose3d.getRotation();
         Rotation2d heading2d = rotation.toRotation2d();
-        Translation3d linearVel = physicsBody.getLinearVelocityMPS();
 
-        // Get yaw rate - IMPORTANT: Use raw Z component, not Rotation3d.getZ() which is
-        // corrupted!
-        double yawRateOld = physicsBody.getAngularVelocityRadPerSec().getZ(); // Old (potentially wrong) method
-        double yawRateNew =
-                (physicsBody instanceof BulletBody) ? ((BulletBody) physicsBody).getRawAngularVelocityZ() : yawRateOld;
-
-        // Log every 50 ticks to avoid spam (10x per second at 500Hz sim rate)
+        // Log every 50 ticks to avoid spam
         if (subTickNum == 0) {
             SimDebugLogger.logPose(String.format(
                     "X=%.3f Y=%.3f Z=%.3f Yaw=%.1f° Roll=%.1f° Pitch=%.1f°",
@@ -119,18 +169,36 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
                     Math.toDegrees(rotation.getY())));
 
             SimDebugLogger.logVelocity(String.format(
-                    "Linear: vx=%.3f vy=%.3f vz=%.3f | YawRate: old=%.3f new=%.3f rad/s",
-                    linearVel.getX(), linearVel.getY(), linearVel.getZ(), yawRateOld, yawRateNew));
+                    "Linear: vx=%.3f vy=%.3f vz=%.3f | YawRate=%.3f rad/s | Threaded=%b",
+                    linearVel.getX(), linearVel.getY(), linearVel.getZ(), yawRate, isThreaded));
 
             SimDebugLogger.logHeading(
                     String.format("Heading2d=%.1f° (from toRotation2d)", Math.toDegrees(heading2d.getRadians())));
         }
 
         // Apply suspension and traction forces
-        simulateModules();
+        // In threaded mode, forces are calculated on the physics thread by
+        // SwervePhysicsCalculator
+        // In sync mode, we calculate and apply them directly here
+        if (!isThreaded) {
+            simulateModules(pose3d, linearVel, bodyId, proxy, state);
+        }
+        // Note: In threaded mode, SwervePhysicsCalculator.applyForces() is called
+        // by PhysicsThread each tick with CURRENT state, not stale cached state
 
-        // Update gyro with yaw rate - USE THE NEW RAW VALUE
-        gyroSimulation.updateSimulationSubTick(yawRateNew);
+        // Update gyro with yaw rate
+        gyroSimulation.updateSimulationSubTick(yawRate);
+    }
+
+    /** Gets the yaw rate from a physics body, handling different wrapper types. */
+    private double getYawRate(org.ironmaple.simulation.physics.PhysicsBody body) {
+        if (body instanceof BulletBody bb) {
+            return bb.getRawAngularVelocityZ();
+        } else if (body instanceof org.ironmaple.simulation.physics.threading.ThreadedBulletBody tbb) {
+            return tbb.getRawAngularVelocityZ();
+        } else {
+            return body.getAngularVelocityRadPerSec().getZ();
+        }
     }
 
     /** Calculates the critical damping coefficient for a given mass per wheel. c_crit = 2 * sqrt(k * m) */
@@ -234,13 +302,18 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
      *   <li>Update module simulation with dynamic normal force
      *   <li>Apply resulting suspension and traction forces to the body
      * </ul>
+     *
+     * @param pose3d Current robot pose (from physics or cached state)
+     * @param linearVel Current linear velocity
+     * @param bodyId Body ID for threaded proxy (-1 if sync)
+     * @param proxy Threaded proxy (null if sync mode)
+     * @param state Cached simulation state (null if sync mode)
      */
-    private void simulateModules() {
-        var pose3d = physicsBody.getPose3d();
+    private void simulateModules(
+            Pose3d pose3d, Translation3d linearVel, int bodyId, ThreadedPhysicsProxy proxy, SimulationState state) {
         var rotation = pose3d.getRotation();
-        // CRITICAL: Use toRotation2d() to properly extract yaw from 3D rotation
-        // rotation.getZ() returns rotation vector Z component, NOT yaw angle!
         Rotation2d robotHeading = rotation.toRotation2d();
+        boolean isThreaded = proxy != null;
 
         // Calculate per-wheel mass for damping
         double robotMassKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
@@ -253,75 +326,111 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
             SwerveModuleSimulation module = moduleSimulations[i];
 
             // --- 1. Suspension Calculation ---
-            // Mount point is at bottom of chassis (relative to chassis center)
             Translation3d localMountPoint =
                     new Translation3d(moduleOffset.getX(), moduleOffset.getY(), -CHASSIS_HEIGHT / 2);
             Translation3d worldMountPoint =
                     rotatePoint(localMountPoint, rotation).plus(pose3d.getTranslation());
 
-            // Raycast downward from mount point
             Translation3d rayDirection = new Translation3d(0, 0, -1);
-            double maxRayDistance = SUSPENSION_REST_LENGTH + SUSPENSION_MAX_TRAVEL + WHEEL_RADIUS;
-            Optional<PhysicsEngine.RaycastResult> hit =
-                    physicsEngine.raycast(worldMountPoint, rayDirection, maxRayDistance);
+            // Start raycast higher to avoid starting inside the ground if the robot sinks
+            double rayOriginOffset = 0.5;
+            Translation3d rayOrigin = worldMountPoint.plus(new Translation3d(0, 0, rayOriginOffset));
+            double maxRayDistance = SUSPENSION_REST_LENGTH + SUSPENSION_MAX_TRAVEL + WHEEL_RADIUS + rayOriginOffset;
+
+            // Get raycast result (sync: direct, threaded: from cached state)
+            PhysicsEngine.RaycastResult hitResult = null;
+            if (isThreaded && state != null) {
+                // Look up result from PREVIOUS tick using stored ID
+                int prevRaycastId = lastQueuedRaycastIds[i];
+                if (prevRaycastId >= 0) {
+                    var optResult = proxy.getCachedRaycast(prevRaycastId);
+                    hitResult = optResult.orElse(null);
+                }
+
+                // Queue raycast for NEXT tick (store ID for use next frame)
+                int newId = proxy.queueRaycast(rayOrigin, rayDirection, maxRayDistance);
+                lastQueuedRaycastIds[i] = newId;
+            } else {
+                // Sync mode: direct raycast
+                Optional<PhysicsEngine.RaycastResult> hit =
+                        physicsEngine.raycast(rayOrigin, rayDirection, maxRayDistance);
+                hitResult = hit.orElse(null);
+            }
 
             double normalForceNewtons = 0.0;
+            Translation3d suspensionForce = Translation3d.kZero;
 
-            if (hit.isPresent()) {
-                double groundDistance = hit.get().hitDistance();
+            if (hitResult != null) {
+                double groundDistance = hitResult.hitDistance() - rayOriginOffset;
                 double suspensionCompression = SUSPENSION_REST_LENGTH + WHEEL_RADIUS - groundDistance;
 
                 if (suspensionCompression > 0) {
-                    // Get velocity of mount point (not ground point!)
-                    Translation3d mountVelocity = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
-                    double compressionVelocity = -mountVelocity.getZ(); // Positive = compressing
+                    // Get velocity of mount point
+                    Translation3d mountVelocity;
+                    if (isThreaded) {
+                        // Approximate: use linear velocity (ignoring angular contribution for
+                        // simplicity)
+                        mountVelocity = linearVel;
+                    } else {
+                        mountVelocity = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
+                    }
+                    double compressionVelocity = -mountVelocity.getZ();
 
-                    // Select damping based on compression vs expansion
                     double dampingCoeff = compressionVelocity > 0
                             ? baseDamping * COMPRESSION_DAMPING_MULT
                             : baseDamping * EXPANSION_DAMPING_MULT;
 
-                    // Spring + Damper force
                     double springForce = SUSPENSION_STIFFNESS * suspensionCompression;
                     double damperForce = dampingCoeff * compressionVelocity;
-                    normalForceNewtons = Math.max(0, springForce + damperForce);
 
-                    // Cap force to prevent physics explosions
+                    // Ensure normal force is non-negative (can't pull ground)
+                    normalForceNewtons = Math.max(0, springForce + damperForce);
                     normalForceNewtons = Math.min(normalForceNewtons, MAX_SUSPENSION_FORCE);
 
-                    // Apply suspension force at MOUNT POINT (chassis attachment), not ground
-                    // Force direction is along ground normal (usually straight up)
-                    Translation3d normal = hit.get().hitNormal();
-                    Translation3d suspensionForce = normal.times(normalForceNewtons);
-                    physicsBody.applyForceAtPoint(suspensionForce, worldMountPoint);
+                    Translation3d normal = hitResult.hitNormal();
+                    suspensionForce = normal.times(normalForceNewtons);
                 }
             }
 
             // --- 2. Traction/Propulsion Calculation ---
-            // Get ground velocity at mount point
-            Translation3d pointVelocity3d = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
+            Translation3d pointVelocity3d;
+            if (isThreaded) {
+                pointVelocity3d = linearVel; // Approximation for threaded mode
+            } else {
+                pointVelocity3d = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
+            }
             org.dyn4j.geometry.Vector2 groundVelocity2d =
                     new org.dyn4j.geometry.Vector2(pointVelocity3d.getX(), pointVelocity3d.getY());
 
-            // Update module simulation with dynamic normal force
-            // If airborne, normalForceNewtons is 0, so grip is 0.
             org.dyn4j.geometry.Vector2 tractionForce2d =
                     module.updateSimulationSubTickGetModuleForce(groundVelocity2d, robotHeading, normalForceNewtons);
 
-            // Apply traction force in 3D (XY plane for flat ground)
             Translation3d tractionForce3d = new Translation3d(tractionForce2d.x, tractionForce2d.y, 0);
-            physicsBody.applyForceAtPoint(tractionForce3d, worldMountPoint);
 
-            // Debug logging for forces (only log module 0 to reduce spam)
+            // Apply forces (sync: direct, threaded: queue)
+            if (isThreaded) {
+                if (normalForceNewtons > 0) {
+                    proxy.queueForceAtPoint(bodyId, suspensionForce, worldMountPoint);
+                }
+                proxy.queueForceAtPoint(bodyId, tractionForce3d, worldMountPoint);
+            } else {
+                if (normalForceNewtons > 0) {
+                    physicsBody.applyForceAtPoint(suspensionForce, worldMountPoint);
+                }
+                physicsBody.applyForceAtPoint(tractionForce3d, worldMountPoint);
+            }
+
+            // Debug logging (only module 0)
             if (i == 0) {
                 SimDebugLogger.logForce(String.format(
-                        "Mod0: suspension=%.1fN traction=(%.1f,%.1f)N groundVel=(%.3f,%.3f)m/s heading=%.1f°",
+                        "Mod0: suspension=%.1fN traction=(%.1f,%.1f)N groundVel=(%.3f,%.3f)m/s heading=%.1f° threaded=%b",
                         normalForceNewtons,
                         tractionForce2d.x,
                         tractionForce2d.y,
                         groundVelocity2d.x,
                         groundVelocity2d.y,
-                        Math.toDegrees(robotHeading.getRadians())));
+                        Math.toDegrees(robotHeading.getRadians()),
+                        isThreaded));
             }
         }
     }

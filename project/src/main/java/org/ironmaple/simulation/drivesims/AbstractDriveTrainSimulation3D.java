@@ -11,8 +11,8 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import org.ironmaple.simulation.SimulatedArena3D;
 import org.ironmaple.simulation.drivesims.configs.DriveTrainSimulationConfig;
 import org.ironmaple.simulation.physics.PhysicsBody;
+import org.ironmaple.simulation.physics.PhysicsEngine;
 import org.ironmaple.simulation.physics.PhysicsShape;
-import org.ironmaple.simulation.physics.bullet.BulletPhysicsEngine;
 
 /**
  *
@@ -40,7 +40,8 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
 
     public final DriveTrainSimulationConfig config;
     protected PhysicsBody physicsBody;
-    protected BulletPhysicsEngine physicsEngine;
+    protected PhysicsEngine physicsEngine;
+    protected SimulatedArena3D arena;
 
     /**
      * Height of the robot chassis BOTTOM above ground at spawn (meters). This should be approximately the suspension
@@ -77,6 +78,7 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
      * @param initialPose the initial 2D pose (converted to 3D with ground height)
      */
     public void registerWithArena(SimulatedArena3D arena, Pose2d initialPose) {
+        this.arena = arena;
         this.physicsEngine = arena.getPhysicsEngine();
 
         // Create collision shape (box)

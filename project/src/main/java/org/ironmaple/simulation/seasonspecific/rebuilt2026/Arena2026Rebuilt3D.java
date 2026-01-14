@@ -19,6 +19,7 @@ import edu.wpi.first.wpilibj.DriverStation;
 import org.ironmaple.simulation.SimulatedArena3D;
 import org.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation3D;
 import org.ironmaple.simulation.physics.PhysicsShape;
+import org.ironmaple.simulation.physics.threading.PhysicsThreadConfig;
 
 public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
     protected boolean shouldClock = true;
@@ -47,7 +48,11 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
     private double fuelSeparationGap = 0.001; // 1mm
 
     public Arena2026Rebuilt3D() {
-        super(new RebuiltFieldObstacleMap3D());
+        this(PhysicsThreadConfig.DEFAULT);
+    }
+
+    public Arena2026Rebuilt3D(PhysicsThreadConfig config) {
+        super(new RebuiltFieldObstacleMap3D(), config);
 
         blueHub = new RebuiltHub(this, true);
         this.addCustomSimulation(blueHub);
@@ -108,13 +113,8 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
 
     @Override
     public void placeGamePiecesOnField() {
-        // Reusing placement logic from 2D arena but adapting for 3D spawning
-        double fuelDiameter =
-                ((org.dyn4j.geometry.Circle) RebuiltFuelOnField.REBUILT_FUEL_INFO.shape()).getRadius() * 2;
-        // RebuiltFuelOnField uses a circle shape, radius 3.5 inches = 0.0889 m ->
-        // diameter 0.1778 m
-        // Let's use 0.15 for diameter to match 2D simulation
-        fuelDiameter = 0.15;
+        // Fuel diameter - 2 * 3.5 inches = 7 inches = ~0.18m, using 0.15 for simulation
+        double fuelDiameter = 0.15;
         double fuelRadius = fuelDiameter / 2;
         double spacing = fuelDiameter + fuelSeparationGap;
 

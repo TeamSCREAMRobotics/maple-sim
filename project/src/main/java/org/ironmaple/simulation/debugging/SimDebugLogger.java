@@ -10,14 +10,15 @@ import java.util.Date;
 public class SimDebugLogger {
     private static final String LOG_FILE = "/tmp/maple-sim-debug.log";
     private static PrintWriter writer;
-    private static long startTimeMs;
-    private static int tickCount = 0;
-    private static boolean enabled = true;
+    private static final long startTimeMs;
+    private static final java.util.concurrent.atomic.AtomicInteger tickCount =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+    private static volatile boolean enabled = true;
 
     static {
+        startTimeMs = System.currentTimeMillis();
         try {
             writer = new PrintWriter(new FileWriter(LOG_FILE, false)); // Overwrite on start
-            startTimeMs = System.currentTimeMillis();
             writer.println("=== Maple-Sim 3D Debug Log ===");
             writer.println("Started: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
             writer.println("Format: [time_ms] [tick] [category] message");
@@ -34,18 +35,22 @@ public class SimDebugLogger {
     }
 
     public static void incrementTick() {
-        tickCount++;
+        tickCount.incrementAndGet();
     }
 
-    public static void log(String category, String message) {
+    public static synchronized void log(String category, String message) {
         if (!enabled || writer == null) return;
         long elapsed = System.currentTimeMillis() - startTimeMs;
-        writer.printf("[%6d] [%5d] [%-12s] %s%n", elapsed, tickCount, category, message);
+        writer.printf("[%6d] [%5d] [%-12s] %s%n", elapsed, tickCount.get(), category, message);
         writer.flush();
     }
 
     public static void logPhysics(String message) {
         log("PHYSICS", message);
+    }
+
+    public static void logPerformance(String message) {
+        log("PERF", message);
     }
 
     public static void logGyro(String message) {
@@ -68,7 +73,7 @@ public class SimDebugLogger {
         log("POSE", message);
     }
 
-    public static void close() {
+    public static synchronized void close() {
         if (writer != null) {
             writer.close();
         }
