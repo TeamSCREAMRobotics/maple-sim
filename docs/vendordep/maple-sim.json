@@ -19,12 +19,18 @@
             "groupId": "org.dyn4j",
             "artifactId": "dyn4j",
             "version": "5.0.2"
+        },
+        {
+            "groupId": "com.github.stephengold",
+            "artifactId": "Libbulletjme-MacOSX_ARM64",
+            "version": "22.0.3"
+        },
+        {
+            "groupId": "io.github.electrostat-lab",
+            "artifactId": "snaploader",
+            "version": "1.0.0-stable"
         }
     ],
-    "jniDependencies": [
-
-    ],
-    "cppDependencies": [
-
-    ]
+    "jniDependencies": [],
+    "cppDependencies": []
 }

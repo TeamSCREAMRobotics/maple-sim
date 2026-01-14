@@ -55,7 +55,7 @@ public class RebuiltHub extends Goal {
             .toArray(Pose3d[]::new);
 
     StructPublisher<Pose3d> posePublisher;
-    protected final Arena2026Rebuilt arena;
+    protected final Arena2026 arena;
 
     /**
      *
@@ -65,7 +65,7 @@ public class RebuiltHub extends Goal {
      * @param arena The host arena of this HUB.
      * @param isBlue Wether this is the blue HUB or the red one.
      */
-    public RebuiltHub(Arena2026Rebuilt arena, boolean isBlue) {
+    public RebuiltHub(Arena2026 arena, boolean isBlue) {
         super(
                 arena,
                 Inches.of(47),
