@@ -53,6 +53,9 @@ public class GamePieceOnFieldSimulation3D implements GamePiece, SimulatedArena3D
         this.physicsBody.setUserData(this);
         this.callback = () -> {}; // Default no-op callback
 
+        // Register with arena to ensure it can be tracked and removed
+        arena.registerGamePiece(this);
+
         // Register for sub-tick updates if needed (currently not needed for simple
         // rigid bodies, but good for future)
         arena.addCustomSimulation(this);

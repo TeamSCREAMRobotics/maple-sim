@@ -164,6 +164,17 @@ public abstract class SimulatedArena3D implements Arena {
         return PHYSICS_TICK_RATE_HZ;
     }
 
+    /**
+     * Gets the physics tick period in seconds.
+     *
+     * <p>When running threaded, this is the actual physics time step. When sync, this is 1/tickRateHz.
+     *
+     * @return Tick period in seconds
+     */
+    public double getPhysicsTickPeriodSeconds() {
+        return 1.0 / PHYSICS_TICK_RATE_HZ;
+    }
+
     /** Last measured physics CPU time (sync mode) or tick duration (threaded mode) in seconds. */
     private double lastPhysicsCpuTimeSeconds = 0.0;
 
@@ -251,9 +262,10 @@ public abstract class SimulatedArena3D implements Arena {
             if (shape != null) {
                 PhysicsBody body = physicsEngine.createStaticBody(shape, obstacle.pose());
                 staticBodies.add(body);
-                System.out.println("[MapleSim3D] Created static body: "
-                        + (obstacle.meshResourcePath() != null ? obstacle.meshResourcePath() : "Primitives"));
-                System.out.println("[MapleSim3D] Global Pose: " + obstacle.pose());
+                // System.out.println("[MapleSim3D] Created static body: "
+                // + (obstacle.meshResourcePath() != null ? obstacle.meshResourcePath() :
+                // "Primitives"));
+                // System.out.println("[MapleSim3D] Global Pose: " + obstacle.pose());
             }
         }
 
@@ -495,6 +507,15 @@ public abstract class SimulatedArena3D implements Arena {
         // But removePiece takes GamePiece.
         // GamePieceOnFieldSimulation3D IS a GamePiece.
         dynamicBodies.put(originalPiece, originalPiece.getPhysicsBody());
+    }
+
+    /**
+     * Registers a game piece with the arena's dynamic bodies tracking. This ensures it can be removed properly later.
+     *
+     * @param piece the game piece to register
+     */
+    public void registerGamePiece(GamePieceOnFieldSimulation3D piece) {
+        dynamicBodies.put(piece, piece.getPhysicsBody());
     }
 
     @Override

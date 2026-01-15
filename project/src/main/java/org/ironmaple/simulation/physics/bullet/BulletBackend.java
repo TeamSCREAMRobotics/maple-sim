@@ -69,7 +69,8 @@ public class BulletBackend implements PhysicsBackend {
             // Wrap the engine
             exposedEngine = new org.ironmaple.simulation.physics.threading.ThreadedPhysicsEngine(engine, threadedProxy);
             physicsThread.start();
-            System.out.println("[MapleSim3D] Physics thread started at " + threadConfig.tickRateHz() + " Hz");
+            // System.out.println("[MapleSim3D] Physics thread started at " +
+            // threadConfig.tickRateHz() + " Hz");
         } else {
             engine.initialize();
             exposedEngine = engine;
@@ -91,7 +92,7 @@ public class BulletBackend implements PhysicsBackend {
             }
             physicsThread = null;
             threadedProxy = null;
-            System.out.println("[MapleSim3D] Physics thread stopped");
+            // System.out.println("[MapleSim3D] Physics thread stopped");
         }
 
         engine.shutdown();

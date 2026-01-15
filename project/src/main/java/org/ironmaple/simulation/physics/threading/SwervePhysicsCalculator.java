@@ -1,10 +1,13 @@
 package org.ironmaple.simulation.physics.threading;
 
+import static edu.wpi.first.units.Units.Seconds;
+
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.units.measure.Time;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.ironmaple.simulation.drivesims.SwerveModuleSimulation;
@@ -43,6 +46,7 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
     private final Translation2d[] moduleOffsets;
     private final SwerveModuleSimulation[] modules;
     private final double robotMassKg;
+    private final Time tickPeriod;
 
     // Thread-safe storage for module states (updated by WPILib thread)
     private final AtomicReference<ModuleSetpoint[]> currentSetpoints = new AtomicReference<>(null);
@@ -57,12 +61,14 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
      * @param moduleOffsets Translation2d positions of each module relative to chassis center
      * @param modules The swerve module simulations
      * @param robotMassKg Robot mass in kilograms
+     * @param tickPeriodSeconds The physics tick period in seconds (e.g., 1.0/120 for 120Hz)
      */
     public SwervePhysicsCalculator(
             PhysicsBody chassisBody,
             Translation2d[] moduleOffsets,
             SwerveModuleSimulation[] modules,
-            double robotMassKg) {
+            double robotMassKg,
+            double tickPeriodSeconds) {
         // Unwrap ThreadedBulletBody to get the real body for direct physics thread
         // access
         if (chassisBody instanceof ThreadedBulletBody tbb) {
@@ -73,6 +79,7 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
         this.moduleOffsets = moduleOffsets.clone();
         this.modules = modules;
         this.robotMassKg = robotMassKg;
+        this.tickPeriod = Seconds.of(tickPeriodSeconds);
     }
 
     /**
@@ -154,29 +161,30 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
             org.dyn4j.geometry.Vector2 groundVelocity2d =
                     new org.dyn4j.geometry.Vector2(pointVelocity3d.getX(), pointVelocity3d.getY());
 
-            org.dyn4j.geometry.Vector2 tractionForce2d =
-                    module.updateSimulationSubTickGetModuleForce(groundVelocity2d, robotHeading, normalForceNewtons);
+            org.dyn4j.geometry.Vector2 tractionForce2d = module.updateSimulationSubTickGetModuleForce(
+                    groundVelocity2d, robotHeading, normalForceNewtons, tickPeriod);
 
             Translation3d tractionForce3d = new Translation3d(tractionForce2d.x, tractionForce2d.y, 0);
 
             // DEBUG: Log forces for module 0 once per second
-            if (i == 0 && (System.currentTimeMillis() % 1000) < 15) {
-                System.out.printf(
-                        "[SwervePhysicsCalc] Module0: pos=(%.2f,%.2f,%.2f) hit=%s dist=%.3f norm=(%.2f,%.2f,%.2f) suspForce=(%.1f,%.1f,%.1f) tractForce=(%.1f,%.1f)%n",
-                        worldMountPoint.getX(),
-                        worldMountPoint.getY(),
-                        worldMountPoint.getZ(),
-                        hitResult != null ? "YES" : "NO",
-                        hitResult != null ? hitResult.hitDistance() - RAYCAST_ORIGIN_OFFSET : -1,
-                        hitResult != null ? hitResult.hitNormal().getX() : 0,
-                        hitResult != null ? hitResult.hitNormal().getY() : 0,
-                        hitResult != null ? hitResult.hitNormal().getZ() : 0,
-                        suspensionForce.getX(),
-                        suspensionForce.getY(),
-                        suspensionForce.getZ(),
-                        tractionForce3d.getX(),
-                        tractionForce3d.getY());
-            }
+            // if (i == 0 && (System.currentTimeMillis() % 1000) < 15) {
+            // System.out.printf(
+            // "[SwervePhysicsCalc] Module0: pos=(%.2f,%.2f,%.2f) hit=%s dist=%.3f
+            // norm=(%.2f,%.2f,%.2f) suspForce=(%.1f,%.1f,%.1f) tractForce=(%.1f,%.1f)%n",
+            // worldMountPoint.getX(),
+            // worldMountPoint.getY(),
+            // worldMountPoint.getZ(),
+            // hitResult != null ? "YES" : "NO",
+            // hitResult != null ? hitResult.hitDistance() - RAYCAST_ORIGIN_OFFSET : -1,
+            // hitResult != null ? hitResult.hitNormal().getX() : 0,
+            // hitResult != null ? hitResult.hitNormal().getY() : 0,
+            // hitResult != null ? hitResult.hitNormal().getZ() : 0,
+            // suspensionForce.getX(),
+            // suspensionForce.getY(),
+            // suspensionForce.getZ(),
+            // tractionForce3d.getX(),
+            // tractionForce3d.getY());
+            // }
 
             // --- 4. Apply Forces Directly ---
             if (normalForceNewtons > 0) {

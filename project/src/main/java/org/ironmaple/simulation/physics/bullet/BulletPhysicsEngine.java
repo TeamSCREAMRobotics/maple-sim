@@ -207,11 +207,11 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         try {
             java.util.List<Translation3d[]> hulls = org.ironmaple.utils.ObjLoader.loadConvexHulls(resourcePath);
 
-            System.out.println("[MapleSim3D] Loading mesh: " + resourcePath);
-            System.out.println("[MapleSim3D] Found " + hulls.size() + " convex hulls");
+            // System.out.println("[MapleSim3D] Loading mesh: " + resourcePath);
+            // System.out.println("[MapleSim3D] Found " + hulls.size() + " convex hulls");
 
             if (hulls.isEmpty()) {
-                System.err.println("[MapleSim3D] WARNING: No hulls found in mesh!");
+                // System.err.println("[MapleSim3D] WARNING: No hulls found in mesh!");
                 // Return a tiny placeholder shape
                 return createBoxShape(new Translation3d(0.01, 0.01, 0.01));
             }
@@ -251,16 +251,18 @@ public class BulletPhysicsEngine implements PhysicsEngine {
                 compound.addChildShape(hullShape, 0, 0, 0);
             }
 
-            System.out.println("[MapleSim3D] Total vertices: " + totalVertices);
-            System.out.printf(
-                    "[MapleSim3D] Bounding box: X[%.2f to %.2f] Y[%.2f to %.2f] Z[%.2f to %.2f]%n",
-                    minX, maxX, minY, maxY, minZ, maxZ);
-            System.out.printf(
-                    "[MapleSim3D] Mesh dimensions: %.2fm x %.2fm x %.2fm%n", maxX - minX, maxY - minY, maxZ - minZ);
+            // System.out.println("[MapleSim3D] Total vertices: " + totalVertices);
+            // System.out.printf(
+            // "[MapleSim3D] Bounding box: X[%.2f to %.2f] Y[%.2f to %.2f] Z[%.2f to
+            // %.2f]%n",
+            // minX, maxX, minY, maxY, minZ, maxZ);
+            // System.out.printf(
+            // "[MapleSim3D] Mesh dimensions: %.2fm x %.2fm x %.2fm%n", maxX - minX, maxY -
+            // minY, maxZ - minZ);
 
             return new BulletShape(compound, PhysicsShape.ShapeType.COMPOUND);
         } catch (java.io.IOException e) {
-            System.err.println("[MapleSim3D] ERROR loading mesh: " + resourcePath);
+            // System.err.println("[MapleSim3D] ERROR loading mesh: " + resourcePath);
             e.printStackTrace();
             throw new RuntimeException("Failed to load generic collision mesh: " + resourcePath, e);
         }
