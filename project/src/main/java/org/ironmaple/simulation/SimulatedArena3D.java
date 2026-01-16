@@ -25,7 +25,6 @@ import org.ironmaple.simulation.motorsims.SimulatedBattery;
 import org.ironmaple.simulation.physics.PhysicsBody;
 import org.ironmaple.simulation.physics.PhysicsEngine;
 import org.ironmaple.simulation.physics.PhysicsShape;
-import org.ironmaple.simulation.physics.bullet.BulletBackend;
 import org.ironmaple.simulation.physics.threading.PhysicsThreadConfig;
 
 /**
@@ -33,7 +32,7 @@ import org.ironmaple.simulation.physics.threading.PhysicsThreadConfig;
  *
  * <h1>3D Simulation World</h1>
  *
- * <p>A 3D physics simulation arena using Bullet Physics. This provides high-fidelity simulation with:
+ * <p>A 3D physics simulation arena using Jolt Physics. This provides high-fidelity simulation with:
  *
  * <ul>
  *   <li>Full 3D rigid body dynamics
@@ -175,11 +174,28 @@ public abstract class SimulatedArena3D implements Arena {
         return 1.0 / PHYSICS_TICK_RATE_HZ;
     }
 
+    /**
+     * Gets the number of physics sub-steps per frame in threaded mode.
+     *
+     * @return Number of sub-steps (default 5)
+     */
+    public static int getPhysicsSubTicksPerFrame() {
+        return defaultPhysicsConfig.subTicksPerFrame();
+    }
+
     /** Last measured physics CPU time (sync mode) or tick duration (threaded mode) in seconds. */
     private double lastPhysicsCpuTimeSeconds = 0.0;
 
+    /**
+     * Whether to wait for physics frame completion in threaded mode. When true, simulationPeriodic() blocks until
+     * physics is done, ensuring the freshest state is available but reducing parallelism.
+     *
+     * <p>Default: false for pipelined execution (Option C).
+     */
+    private boolean waitForPhysicsCompletion = false;
+
     /** The 3D physics backend. */
-    protected final BulletBackend physicsBackend;
+    protected final org.ironmaple.simulation.physics.PhysicsBackend physicsBackend;
 
     /** The underlying physics engine for direct access. */
     protected final PhysicsEngine physicsEngine;
@@ -192,6 +208,9 @@ public abstract class SimulatedArena3D implements Arena {
 
     /** Registered projectiles. */
     protected final Set<GamePieceProjectile> projectiles = new HashSet<>();
+
+    /** Frame counter for synchronization verification. */
+    protected long frameCounter = 0;
 
     /** Custom simulations. */
     protected final List<Simulatable> customSimulations = new ArrayList<>();
@@ -234,12 +253,23 @@ public abstract class SimulatedArena3D implements Arena {
         // Register as singleton immediately
         instance = this;
 
-        // Use configured tick rate if threading is enabled
-        PhysicsThreadConfig config =
-                threadConfig.enabled() ? PhysicsThreadConfig.enabled(PHYSICS_TICK_RATE_HZ) : threadConfig;
-        this.physicsBackend = new BulletBackend(config);
+        // Use configured tick rate if threading is enabled, attempting to preserve
+        // sub-ticks
+        PhysicsThreadConfig config = threadConfig;
+        if (threadConfig.enabled()) {
+            // Respect the configuration passed in, ignoring the static PHYSICS_TICK_RATE_HZ
+            // default
+            config = threadConfig;
+        }
+
+        this.physicsBackend = new org.ironmaple.simulation.physics.jolt.JoltBackend(config);
         this.physicsBackend.initialize();
-        this.physicsEngine = physicsBackend.getEngine();
+        this.physicsEngine = ((org.ironmaple.simulation.physics.jolt.JoltBackend) physicsBackend).getEngine();
+        // this.physicsBackend = new
+        // org.ironmaple.simulation.physics.bullet.BulletBackend(config);
+        // this.physicsBackend.initialize();
+        // this.physicsEngine = ((org.ironmaple.simulation.physics.bullet.BulletBackend)
+        // physicsBackend).getEngine();
 
         // Set gravity (downward)
         physicsBackend.setGravity(new Translation3d(0, 0, -9.81));
@@ -262,10 +292,12 @@ public abstract class SimulatedArena3D implements Arena {
             if (shape != null) {
                 PhysicsBody body = physicsEngine.createStaticBody(shape, obstacle.pose());
                 staticBodies.add(body);
-                // System.out.println("[MapleSim3D] Created static body: "
-                // + (obstacle.meshResourcePath() != null ? obstacle.meshResourcePath() :
-                // "Primitives"));
-                // System.out.println("[MapleSim3D] Global Pose: " + obstacle.pose());
+                System.out.println("[MapleSim3D] Created static body: "
+                        + (obstacle.meshResourcePath() != null ? obstacle.meshResourcePath() : "Primitives"));
+                System.out.println("[MapleSim3D] Global Pose: " + obstacle.pose());
+            } else {
+                System.err.println("[MapleSim3D] Failed to create shape for obstacle: "
+                        + (obstacle.meshResourcePath() != null ? obstacle.meshResourcePath() : "Primitives"));
             }
         }
 
@@ -311,18 +343,33 @@ public abstract class SimulatedArena3D implements Arena {
      *
      * <p>Call this ONCE in TimedRobot.simulationPeriodic().
      *
-     * <p>In synchronous mode (default), runs multiple sub-ticks per period. In threaded mode, pulls latest state, runs
-     * custom simulations once, and flushes inputs.
+     * <p>In synchronous mode (default), runs multiple sub-ticks per period. In threaded mode with lock-step pipelining:
+     *
+     * <ol>
+     *   <li>Pull state from frame N-1 (already computed by physics thread)
+     *   <li>Run custom simulations with that state (robot code uses N-1 state)
+     *   <li>Flush inputs for frame N (signals physics thread to process)
+     *   <li>Optionally wait for physics to complete (for determinism testing)
+     * </ol>
+     *
+     * <p>This lock-step approach ensures determinism: physics only runs when explicitly signaled, eliminating
+     * wall-clock timing jitter.
      */
     public synchronized void simulationPeriodic() {
         synchronized (SimulatedArena3D.class) {
             final long t0 = System.nanoTime();
 
             if (physicsBackend.isThreaded()) {
-                // Threaded mode: Pull latest state from physics thread
+                var proxy = physicsBackend.getThreadedProxy();
+
+                // ==================== LOCK-STEP PIPELINING ====================
+                // Step 1: Pull latest state from physics thread (frame N-1 results)
+                // This state was computed during the previous period.
                 physicsBackend.pullLatestState();
 
-                // Run custom simulations once per period with cached state
+                // Step 2: Run custom simulations with the cached state
+                // Robot code runs here, using the N-1 state for sensor readings
+                // and calculating new outputs for frame N.
                 for (Simulatable customSimulation : customSimulations) {
                     customSimulation.simulationSubTick(0);
                 }
@@ -330,11 +377,27 @@ public abstract class SimulatedArena3D implements Arena {
                 // Update projectiles
                 GamePieceProjectile.updateGamePieceProjectiles(this, projectiles);
 
-                // Flush accumulated inputs to physics thread
-                physicsBackend.flushInputs();
+                // Step 3: Flush inputs for frame N and signal physics thread
+                // The physics thread will wake up and process exactly subTicksPerFrame
+                // iterations with the inputs we just queued.
+                if (waitForPhysicsCompletion && proxy != null) {
+                    // Synchronous: Wait for physics to complete for maximum determinism
+                    // This ensures the state is fully updated before we return.
+                    proxy.flushInputsAndWait();
+                } else {
+                    // Pipelined: Let physics run in parallel while we return
+                    // Next period will use the state from this frame.
+                    physicsBackend.flushInputs();
+                }
 
-                // Match clock updates based on real elapsed time in threaded mode
+                // Match clock advances by one robot period
                 matchClock += TimedRobot.kDefaultPeriod;
+                frameCounter++;
+
+                if (frameCounter % 100 == 0) {
+                    SimDebugLogger.logPerformance("[Main] Frame " + frameCounter + " | Physics State: "
+                            + (proxy != null ? proxy.getCachedState().tickNumber() : "N/A"));
+                }
             } else {
                 // Synchronous mode: Original behavior with sub-ticks
                 for (int i = 0; i < SIMULATION_SUB_TICKS_IN_1_PERIOD; i++) {
@@ -348,6 +411,7 @@ public abstract class SimulatedArena3D implements Arena {
 
             SmartDashboard.putNumber("MapleSim3D/PhysicsEngineCPUTimeMS", cpuTimeMs);
             SmartDashboard.putBoolean("MapleSim3D/ThreadedPhysics", physicsBackend.isThreaded());
+            SmartDashboard.putBoolean("MapleSim3D/LockStepMode", physicsBackend.isThreaded() && isLockStepMode());
             SimDebugLogger.logPerformance(String.format("Sim Periodic Time: %.3f ms", cpuTimeMs));
 
             if (resetFieldSubscriber.get()) {
@@ -421,6 +485,63 @@ public abstract class SimulatedArena3D implements Arena {
      */
     public boolean isThreaded() {
         return physicsBackend.isThreaded();
+    }
+
+    /**
+     *
+     *
+     * <h2>Checks if lock-step mode is enabled.</h2>
+     *
+     * <p>Lock-step mode ensures deterministic physics by requiring explicit frame signals from the main thread,
+     * eliminating wall-clock timing jitter.
+     *
+     * @return true if lock-step mode is enabled (only meaningful in threaded mode)
+     */
+    public boolean isLockStepMode() {
+        var proxy = physicsBackend.getThreadedProxy();
+        return proxy != null && proxy.isLockStepMode();
+    }
+
+    /**
+     *
+     *
+     * <h2>Sets lock-step mode for deterministic physics.</h2>
+     *
+     * <p>In lock-step mode (default), physics only runs when the main thread signals a frame, ensuring deterministic
+     * behavior. In free-running mode, physics runs at its configured tick rate using wall-clock timing.
+     *
+     * @param lockStep true for deterministic lock-step, false for free-running
+     */
+    public void setLockStepMode(boolean lockStep) {
+        var proxy = physicsBackend.getThreadedProxy();
+        if (proxy != null) {
+            proxy.setLockStepMode(lockStep);
+        }
+    }
+
+    /**
+     *
+     *
+     * <h2>Sets whether to wait for physics completion each frame.</h2>
+     *
+     * <p>When true (default), simulationPeriodic() blocks until physics completes, ensuring the freshest state is
+     * available. When false, physics runs in parallel (pipelined), using the previous frame's state.
+     *
+     * @param wait true to wait for physics completion, false for pipelined execution
+     */
+    public void setWaitForPhysicsCompletion(boolean wait) {
+        this.waitForPhysicsCompletion = wait;
+    }
+
+    /**
+     *
+     *
+     * <h2>Checks whether physics completion waiting is enabled.</h2>
+     *
+     * @return true if simulationPeriodic() waits for physics completion
+     */
+    public boolean isWaitForPhysicsCompletion() {
+        return waitForPhysicsCompletion;
     }
 
     /**
@@ -684,6 +805,43 @@ public abstract class SimulatedArena3D implements Arena {
             if (redScoringBreakdown.get(valueKey) == null) redScoringBreakdown.put(valueKey, toAdd);
             else redScoringBreakdown.put(valueKey, redScoringBreakdown.get(valueKey) + toAdd);
         }
+    }
+
+    /**
+     *
+     *
+     * <h2>Obtains the 3D Poses of a Specific Type of Game Piece as an array.</h2>
+     *
+     * @see #getGamePiecesPosesByType(String)
+     */
+    public synchronized Pose3d[] getGamePiecePosesArrayByType(String type) {
+        return getGamePiecesPosesByType(type).toArray(Pose3d[]::new);
+    }
+
+    /**
+     *
+     *
+     * <h2>Obtains the 3D Poses of a Specific Type of Game Piece as an array.</h2>
+     *
+     * @see #getGamePiecesPosesByType(String)
+     * @deprecated Use {@link #getGamePiecePosesArrayByType(String)} instead. This method name was confusing as it
+     *     implied returning GamePiece objects.
+     */
+    @Deprecated
+    public synchronized Pose3d[] getGamePiecesArrayByType(String type) {
+        return getGamePiecePosesArrayByType(type);
+    }
+
+    /**
+     *
+     *
+     * <h2>Returns all game pieces on the field of the specified type as an array</h2>
+     *
+     * @param type The string type to be selected.
+     * @return The game pieces as an array of {@link GamePiece}
+     */
+    public synchronized GamePiece[] getGamePiecesByTypeAsArray(String type) {
+        return getGamePiecesByType(type).toArray(GamePiece[]::new);
     }
 
     public void addValueToMatchBreakdown(boolean isBlueTeam, String valueKey, int toAdd) {

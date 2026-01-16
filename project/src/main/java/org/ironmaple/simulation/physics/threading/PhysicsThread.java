@@ -8,13 +8,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.ironmaple.simulation.debugging.SimDebugLogger;
 import org.ironmaple.simulation.physics.PhysicsBody;
 import org.ironmaple.simulation.physics.PhysicsEngine;
-import org.ironmaple.simulation.physics.bullet.BulletBody;
-import org.ironmaple.simulation.physics.bullet.BulletPhysicsEngine;
 
 /**
  * Dedicated thread for running Bullet physics simulation.
@@ -35,7 +35,7 @@ import org.ironmaple.simulation.physics.bullet.BulletPhysicsEngine;
  * {@link PhysicsThreadConfig#maxCatchupTicks()}.
  */
 public class PhysicsThread extends Thread {
-    private final BulletPhysicsEngine engine;
+    private final PhysicsEngine engine;
     private final PhysicsThreadConfig config;
 
     // Lock-free communication channels
@@ -53,6 +53,20 @@ public class PhysicsThread extends Thread {
     private long tickCount = 0;
     private double simulationTimeSeconds = 0.0;
     private double lastTickDurationSeconds = 0.0;
+    private double accumulatedTime = 0.0;
+
+    // Debug: Enable to log frame IDs for pipeline verification
+    private static final boolean DEBUG_FRAME_IDS = true;
+
+    // Lock-step synchronization for deterministic physics
+    // frameReadySemaphore: Main thread releases to signal "process this frame"
+    // frameCompleteSemaphore: Physics thread releases when frame is done
+    private final Semaphore frameReadySemaphore = new Semaphore(0);
+    private final Semaphore frameCompleteSemaphore = new Semaphore(0);
+    private volatile boolean lockStepMode = true; // Default to deterministic mode
+
+    // Initialization synchronization - signals when engine is ready
+    private final CountDownLatch initializationLatch = new CountDownLatch(1);
 
     // NetworkTables metrics
     private final DoublePublisher tickTimePublisher;
@@ -62,10 +76,10 @@ public class PhysicsThread extends Thread {
     /**
      * Creates a new physics thread.
      *
-     * @param engine The Bullet physics engine (must be initialized)
+     * @param engine The physics engine (must be initialized)
      * @param config Threading configuration
      */
-    public PhysicsThread(BulletPhysicsEngine engine, PhysicsThreadConfig config) {
+    public PhysicsThread(PhysicsEngine engine, PhysicsThreadConfig config) {
         super("MapleSim-PhysicsThread");
         this.engine = engine;
         this.config = config;
@@ -82,40 +96,101 @@ public class PhysicsThread extends Thread {
 
     @Override
     public void run() {
-        long nextTickNanos = System.nanoTime();
-        final long tickPeriodNanos = config.tickPeriodNanos();
-        final Time tickDt = Units.Seconds.of(config.tickPeriodSeconds());
-
-        // Initialize engine on this thread if needed
+        // Initialize engine on this thread to maintain thread affinity
         engine.initialize();
+        initializationLatch.countDown(); // Signal that initialization is complete
+
+        final int subTicks = config.subTicksPerFrame();
+        final long tickPeriodNanos = config.tickPeriodNanos();
+        // Do NOT divide by subTicks. checking rateHz is the PHYSICS tick rate (e.g.
+        // 100Hz -> 0.01s).
+        // We want to run 'subTicks' steps of this size per frame.
+        final Time subTickDt = Units.Seconds.of(config.tickPeriodSeconds());
+        final double subTickDtSeconds = config.tickPeriodSeconds();
+
+        // For free-running mode fallback
+        long nextTickNanos = System.nanoTime();
+        long lastLoopTime = System.nanoTime();
 
         while (running) {
+            // ==================== LOCK-STEP MODE ====================
+            // Wait for main thread to signal that a frame is ready to process.
+            // This ensures deterministic timing: physics only runs when the main
+            // thread has prepared inputs, eliminating wall-clock jitter.
+            if (lockStepMode) {
+                try {
+                    frameReadySemaphore.acquire();
+                } catch (InterruptedException e) {
+                    if (!running) break;
+                    Thread.currentThread().interrupt();
+                    continue;
+                }
+                if (!running) break;
+            }
+
             long tickStart = System.nanoTime();
 
             // Sync bodies from engine (captures bodies added by main thread)
             syncBodies();
 
-            // Process pending inputs
+            // Process pending inputs (guaranteed to be present in lock-step mode)
             SimulationInputs inputs = pendingInputs.getAndSet(null);
             if (inputs != null) {
+                if (DEBUG_FRAME_IDS) {
+                    System.out.println("[PhysicsThread] Processing frame " + inputs.frameNumber() + " at physics tick "
+                            + tickCount);
+                }
                 applyInputs(inputs);
+            } else if (DEBUG_FRAME_IDS && lockStepMode) {
+                System.err.println("[PhysicsThread] WARNING: No inputs in lock-step mode at tick " + tickCount);
             }
 
-            // Run physics calculators (suspension, traction, etc.) with CURRENT state
-            for (PhysicsCalculator calc : calculators) {
-                calc.applyForces(engine);
+            // --- Physics Application ---
+            if (lockStepMode) {
+                // STRICT MODE: Always run exactly 'subTicks' steps.
+                // This assumes the main thread is running at 50Hz and we are configured for
+                // 100Hz (2 steps).
+                // We ignore wall clock time completely to ensure determinism.
+                for (int i = 0; i < subTicks; i++) {
+                    // Run physics calculators with CURRENT state
+                    for (PhysicsCalculator calc : calculators) {
+                        calc.applyForces(engine);
+                    }
+
+                    engine.step(subTickDt);
+                    simulationTimeSeconds += subTickDtSeconds;
+                }
+            } else {
+                // Free-running mode (Accumulator fallback)
+                long now = System.nanoTime();
+                double deltaTimeSeconds = (now - lastLoopTime) / 1_000_000_000.0;
+                lastLoopTime = now;
+                accumulatedTime += deltaTimeSeconds;
+
+                int stepsRun = 0;
+                while (accumulatedTime >= subTickDtSeconds) {
+                    for (PhysicsCalculator calc : calculators) {
+                        calc.applyForces(engine);
+                    }
+                    engine.step(subTickDt);
+                    simulationTimeSeconds += subTickDtSeconds;
+                    accumulatedTime -= subTickDtSeconds;
+                    stepsRun++;
+
+                    if (stepsRun >= config.maxCatchupTicks()) {
+                        accumulatedTime = 0;
+                        break;
+                    }
+                }
             }
 
-            // Step physics
-            engine.step(tickDt);
             tickCount++;
-            simulationTimeSeconds += config.tickPeriodSeconds();
 
-            // Capture and publish state (using previous tick's duration)
+            // Capture and publish state
             SimulationState state = captureState(inputs);
             currentState.set(state);
 
-            // Calculate timing
+            // Calculate timing metrics
             long elapsed = System.nanoTime() - tickStart;
             double elapsedMs = elapsed / 1_000_000.0;
             lastTickDurationSeconds = elapsed / 1_000_000_000.0;
@@ -126,18 +201,21 @@ public class PhysicsThread extends Thread {
                         "Physics Thread Tick: %d, Bodies: %d, Time: %.3f ms", tickCount, bodyById.size(), elapsedMs));
             }
 
-            // Wait for next tick
-            nextTickNanos += tickPeriodNanos;
-            long waitNanos = nextTickNanos - System.nanoTime();
-
-            if (waitNanos > 0) {
-                LockSupport.parkNanos(waitNanos);
+            // ==================== SIGNAL COMPLETION ====================
+            if (lockStepMode) {
+                // Signal main thread that this frame is complete
+                // In Pipelined mode (Option C), Main thread might not be waiting,
+                // but we signal anyway for the N-1 handshake.
+                frameCompleteSemaphore.release();
             } else {
-                // Falling behind - try to catch up, but limit
-                int ticksBehind = (int) (-waitNanos / tickPeriodNanos);
-                if (ticksBehind > config.maxCatchupTicks()) {
-                    // Reset timing - we're too far behind
-                    nextTickNanos = System.nanoTime() + tickPeriodNanos;
+                // Free-running mode pacing
+                nextTickNanos += tickPeriodNanos;
+                long waitNanos = nextTickNanos - System.nanoTime();
+
+                if (waitNanos > 0) {
+                    LockSupport.parkNanos(waitNanos);
+                } else {
+                    nextTickNanos = System.nanoTime();
                 }
             }
         }
@@ -145,10 +223,10 @@ public class PhysicsThread extends Thread {
 
     /** Synchronizes local body map with engine's live bodies. */
     private void syncBodies() {
+        // This is inefficient if getBodies returns a new list every time
+        // But needed if main thread adds bodies directly
         for (PhysicsBody body : engine.getBodies()) {
-            if (body instanceof BulletBody bb) {
-                bodyById.put(bb.getBodyId(), body);
-            }
+            bodyById.put(body.getBodyId(), body);
         }
     }
 
@@ -158,23 +236,20 @@ public class PhysicsThread extends Thread {
                 + inputs.torques().size()
                 + inputs.spawns().size()
                 + inputs.removals().size()
-                + inputs.bodiesToAdd().size());
+                + inputs.bodiesToAdd().size()
+                + inputs.newCalculators().size());
 
         // Process existing body additions FIRST and add to bodyById immediately
         // This allows forces queued in the same batch to find these bodies
         for (PhysicsBody body : inputs.bodiesToAdd()) {
             engine.addBody(body);
-            if (body instanceof BulletBody bb) {
-                bodyById.put(bb.getBodyId(), body);
-            }
+            bodyById.put(body.getBodyId(), body);
         }
 
         // Process body spawns (also add to bodyById)
         for (var spawn : inputs.spawns()) {
             PhysicsBody newBody = engine.createDynamicBody(spawn.shape(), spawn.massKg(), spawn.initialPose());
-            if (newBody instanceof BulletBody bb) {
-                bodyById.put(bb.getBodyId(), newBody);
-            }
+            bodyById.put(newBody.getBodyId(), newBody);
         }
 
         // Process body removals
@@ -197,8 +272,12 @@ public class PhysicsThread extends Thread {
         for (var reset : inputs.velocityResets()) {
             PhysicsBody body = bodyById.get(reset.bodyId());
             if (body != null) {
-                body.setLinearVelocityMPS(reset.linearVelocity());
-                body.setAngularVelocityRadPerSec(reset.angularVelocity());
+                if (reset.linearVelocity() != null) {
+                    body.setLinearVelocityMPS(reset.linearVelocity());
+                }
+                if (reset.angularVelocity() != null) {
+                    body.setAngularVelocityRadPerSec(reset.angularVelocity());
+                }
             }
         }
 
@@ -224,6 +303,24 @@ public class PhysicsThread extends Thread {
 
         // Apply global gravity update
         inputs.newGravity().ifPresent(engine::setGravity);
+
+        // Register new calculators FIRST, before applying swerve inputs
+        // This ensures newly registered calculators receive their swerve input
+        // on the same frame they're added (critical for determinism on first frame)
+        for (PhysicsCalculator calculator : inputs.newCalculators()) {
+            calculators.add(calculator);
+        }
+
+        // Update physics calculators with swerve inputs AFTER adding new calculators
+        // This ensures the new calculator gets its capturedStates set immediately,
+        // avoiding the fallback path that reads live (non-deterministic) state.
+        inputs.swerveInput().ifPresent(input -> {
+            for (PhysicsCalculator calc : calculators) {
+                if (calc instanceof ThreadedSwerveCalculator swerveCalc) {
+                    swerveCalc.setCapturedStates(input.moduleStates());
+                }
+            }
+        });
     }
 
     /** Captures the current physics state as an immutable snapshot. */
@@ -285,9 +382,7 @@ public class PhysicsThread extends Thread {
      * @param body The body to register
      */
     public void registerBody(PhysicsBody body) {
-        if (body instanceof BulletBody bb) {
-            bodyById.put(bb.getBodyId(), body);
-        }
+        bodyById.put(body.getBodyId(), body);
     }
 
     /**
@@ -302,10 +397,104 @@ public class PhysicsThread extends Thread {
         calculators.add(calculator);
     }
 
+    /**
+     * Waits for the physics engine to complete initialization.
+     *
+     * <p>Call this after starting the thread to ensure the engine is ready before creating bodies.
+     *
+     * @throws InterruptedException if interrupted while waiting
+     */
+    public void waitForInitialization() throws InterruptedException {
+        initializationLatch.await();
+    }
+
     /** Requests graceful shutdown. */
     public void shutdown() {
         running = false;
-        LockSupport.unpark(this); // Wake from any sleep
+        // Wake thread from any blocking state
+        frameReadySemaphore.release();
+        LockSupport.unpark(this);
+    }
+
+    /**
+     * Signals the physics thread to process a frame.
+     *
+     * <p>In lock-step mode, this wakes the physics thread to process the pending inputs. The physics thread will run
+     * exactly {@code subTicksPerFrame} sub-steps and then signal completion.
+     *
+     * <p>Call this AFTER submitting inputs via {@link #submitInputs(SimulationInputs)}.
+     */
+    public void signalFrameReady() {
+        frameReadySemaphore.release();
+    }
+
+    /**
+     * Waits for the physics thread to complete the current frame.
+     *
+     * <p>In lock-step mode, blocks until the physics thread has finished processing the frame that was signaled by
+     * {@link #signalFrameReady()}. This ensures the latest state is available before the main thread continues.
+     *
+     * <p>For pipelining: you can choose NOT to wait, allowing the main thread to continue with the previous frame's
+     * state while physics processes in parallel. Call this method if you need the latest state immediately.
+     *
+     * @return true if the frame completed, false if interrupted
+     */
+    public boolean waitForFrameComplete() {
+        try {
+            frameCompleteSemaphore.acquire();
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * Waits for frame completion with a timeout.
+     *
+     * @param timeoutMs Maximum time to wait in milliseconds
+     * @return true if the frame completed, false if timeout or interrupted
+     */
+    public boolean waitForFrameComplete(long timeoutMs) {
+        try {
+            return frameCompleteSemaphore.tryAcquire(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * Checks if a frame has completed without blocking.
+     *
+     * @return true if a frame completion signal is available
+     */
+    public boolean isFrameComplete() {
+        return frameCompleteSemaphore.tryAcquire();
+    }
+
+    /**
+     * Sets whether to use lock-step mode (deterministic) or free-running mode.
+     *
+     * <p>Lock-step mode (default): Physics waits for explicit frame signals from the main thread. This ensures perfect
+     * determinism but requires the main thread to drive the physics timing.
+     *
+     * <p>Free-running mode: Physics runs at its configured tick rate using wall-clock timing. This allows physics to
+     * run faster than the main thread but introduces timing jitter that can cause non-deterministic behavior.
+     *
+     * @param lockStep true for deterministic lock-step, false for free-running
+     */
+    public void setLockStepMode(boolean lockStep) {
+        this.lockStepMode = lockStep;
+    }
+
+    /**
+     * Returns whether lock-step mode is enabled.
+     *
+     * @return true if in lock-step mode
+     */
+    public boolean isLockStepMode() {
+        return lockStepMode;
     }
 
     /**

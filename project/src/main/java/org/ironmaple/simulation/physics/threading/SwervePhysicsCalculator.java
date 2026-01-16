@@ -7,9 +7,9 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.units.measure.Time;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 import org.ironmaple.simulation.drivesims.SwerveModuleSimulation;
 import org.ironmaple.simulation.physics.PhysicsBody;
 import org.ironmaple.simulation.physics.PhysicsEngine;
@@ -28,13 +28,13 @@ import org.ironmaple.simulation.physics.PhysicsEngine;
  *   <li>Module states are updated atomically from the WPILib thread
  * </ul>
  */
-public class SwervePhysicsCalculator implements PhysicsCalculator {
+public class SwervePhysicsCalculator implements ThreadedSwerveCalculator {
 
     // ==================== Suspension Parameters ====================
-    private static final double SUSPENSION_STIFFNESS = 10000.0;
-    private static final double TARGET_DAMPING_RATIO = 0.7;
-    private static final double COMPRESSION_DAMPING_MULT = 1.0;
-    private static final double EXPANSION_DAMPING_MULT = 0.5;
+    private static final double SUSPENSION_STIFFNESS = 4000.0;
+    private static final double TARGET_DAMPING_RATIO = 1.2;
+    private static final double COMPRESSION_DAMPING_MULT = 1.5;
+    private static final double EXPANSION_DAMPING_MULT = 1.2;
     private static final double SUSPENSION_REST_LENGTH = 0.05;
     private static final double SUSPENSION_MAX_TRAVEL = 0.1;
     private static final double WHEEL_RADIUS = 0.0508;
@@ -47,12 +47,7 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
     private final SwerveModuleSimulation[] modules;
     private final double robotMassKg;
     private final Time tickPeriod;
-
-    // Thread-safe storage for module states (updated by WPILib thread)
-    private final AtomicReference<ModuleSetpoint[]> currentSetpoints = new AtomicReference<>(null);
-
-    /** Module setpoint record for thread-safe communication. */
-    public record ModuleSetpoint(Rotation2d angle, double speedMps) {}
+    private volatile SwerveModuleState[] capturedStates = null;
 
     /**
      * Creates a swerve physics calculator.
@@ -69,10 +64,12 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
             SwerveModuleSimulation[] modules,
             double robotMassKg,
             double tickPeriodSeconds) {
-        // Unwrap ThreadedBulletBody to get the real body for direct physics thread
+        // Unwrap threaded wrappers to get the real body for direct physics thread
         // access
         if (chassisBody instanceof ThreadedBulletBody tbb) {
             this.chassisBody = tbb.getRealBody();
+        } else if (chassisBody instanceof ThreadedJoltBody tjb) {
+            this.chassisBody = tjb.getRealBody();
         } else {
             this.chassisBody = chassisBody;
         }
@@ -83,14 +80,12 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
     }
 
     /**
-     * Updates module setpoints from the WPILib thread.
+     * Updates the captured states for the next tick.
      *
-     * <p>This is the ONLY method that should be called from outside the physics thread.
-     *
-     * @param setpoints Current module setpoints (angles and speeds)
+     * @param states The swerve module states from the beginning of the frame.
      */
-    public void updateSetpoints(ModuleSetpoint[] setpoints) {
-        currentSetpoints.set(setpoints.clone());
+    public void setCapturedStates(SwerveModuleState[] states) {
+        this.capturedStates = states;
     }
 
     @Override
@@ -161,8 +156,22 @@ public class SwervePhysicsCalculator implements PhysicsCalculator {
             org.dyn4j.geometry.Vector2 groundVelocity2d =
                     new org.dyn4j.geometry.Vector2(pointVelocity3d.getX(), pointVelocity3d.getY());
 
-            org.dyn4j.geometry.Vector2 tractionForce2d = module.updateSimulationSubTickGetModuleForce(
-                    groundVelocity2d, robotHeading, normalForceNewtons, tickPeriod);
+            org.dyn4j.geometry.Vector2 tractionForce2d;
+            if (capturedStates != null && i < capturedStates.length) {
+                // Use captured state for determinism (Physics Thread does NOT mutate module)
+                tractionForce2d = module.getModuleForceFromState(
+                        capturedStates[i], groundVelocity2d, robotHeading, normalForceNewtons);
+            } else {
+                // DETERMINISM WARNING: This fallback path reads live (mutable) state from
+                // the module, which breaks determinism in threaded mode. This should NEVER
+                // execute if lock-step mode is working correctly.
+                // If you see this warning, there's a bug in the input synchronization.
+                System.err.println("[SwervePhysicsCalculator] WARNING: capturedStates is null! "
+                        + "Falling back to live state - DETERMINISM BROKEN. "
+                        + "Module index: " + i);
+                tractionForce2d = module.updateSimulationSubTickGetModuleForce(
+                        groundVelocity2d, robotHeading, normalForceNewtons, tickPeriod);
+            }
 
             Translation3d tractionForce3d = new Translation3d(tractionForce2d.x, tractionForce2d.y, 0);
 

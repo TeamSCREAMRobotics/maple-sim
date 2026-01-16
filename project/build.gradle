@@ -38,13 +38,21 @@ dependencies {
 
     api 'org.dyn4j:dyn4j:5.0.2'
 
-    // 3D Physics Engine (Bullet via JNI)
+    // 3D Physics Engine (Jolt via JNI) - PRIMARY
+    // JVM library (platform-independent):
+    implementation("com.github.stephengold:jolt-jni-Windows64:3.5.2")
+
+    // Native libraries for all supported platforms (Release, Single Precision):
+    runtimeOnly("com.github.stephengold:jolt-jni-Linux64:3.5.2:ReleaseDp")
+    runtimeOnly("com.github.stephengold:jolt-jni-Windows64:3.5.2:ReleaseDp")
+    runtimeOnly("com.github.stephengold:jolt-jni-MacOSX_ARM64:3.5.2:ReleaseDp")
+
+    // 3D Physics Engine (Bullet via JNI) - LEGACY FALLBACK
     implementation("com.github.stephengold:Libbulletjme-MacOSX_ARM64:22.0.3")
 
-    // native libraries:
-    runtimeOnly 'com.github.stephengold:Libbulletjme-MacOSX_ARM64:22.0.3:SpDebug'
-
-    api 'io.github.electrostat-lab:snaploader:1.0.0-stable'
+    // JSnapLoader for native library loading:
+    api 'io.github.electrostat-lab:snaploader:1.1.1-stable'
+    runtimeOnly 'com.github.oshi:oshi-core:6.9.2'
 
     implementation "edu.wpi.first.cscore:cscore-java:$wpilibVersion"
     implementation "edu.wpi.first.cameraserver:cameraserver-java:$wpilibVersion"

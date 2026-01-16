@@ -50,42 +50,67 @@ public class ThreadedPhysicsEngine implements PhysicsEngine {
         // We need to create the body without adding it to the space immediately (which
         // is unsafe)
         PhysicsBody realBody;
+        PhysicsBody wrapperBody;
+
         if (realEngine instanceof org.ironmaple.simulation.physics.bullet.BulletPhysicsEngine bulletEngine) {
             realBody = bulletEngine.createDynamicBodyNoAdd(shape, massKg, initialPose);
+            wrapperBody = new ThreadedBulletBody((BulletBody) realBody, proxy);
+        } else if (realEngine instanceof org.ironmaple.simulation.physics.jolt.JoltPhysicsEngine joltEngine) {
+            realBody = joltEngine.createDynamicBodyNoAdd(shape, massKg, initialPose);
+            wrapperBody = new org.ironmaple.simulation.physics.threading.ThreadedJoltBody(
+                    (org.ironmaple.simulation.physics.jolt.JoltBody) realBody, proxy);
         } else {
-            // Fallback (unsafe if engine adds immediately, but we have no choice without
-            // interface change)
+            // Fallback (unsafe if engine adds immediately)
             realBody = realEngine.createDynamicBody(shape, massKg, initialPose);
+            // We don't have a generic wrapper, so we can't wrap it properly if unknown type
+            // But we can try to wrap it if it implements PhysicsBody, though threading
+            // support might fail
+            return realBody;
         }
+
+        // Link wrapper to real body for raycast identification
+        realBody.setUserData(wrapperBody);
 
         // Queue addition of the REAL body
         proxy.queueBodyAdd(realBody);
 
-        // Return the wrapper
-        return new ThreadedBulletBody((BulletBody) realBody, proxy);
+        return wrapperBody;
     }
 
     @Override
     public PhysicsBody createStaticBody(PhysicsShape shape, Pose3d pose) {
         PhysicsBody realBody;
+        PhysicsBody wrapperBody;
+
         if (realEngine instanceof org.ironmaple.simulation.physics.bullet.BulletPhysicsEngine bulletEngine) {
             realBody = bulletEngine.createStaticBodyNoAdd(shape, pose);
+            wrapperBody = new ThreadedBulletBody((BulletBody) realBody, proxy);
+        } else if (realEngine instanceof org.ironmaple.simulation.physics.jolt.JoltPhysicsEngine joltEngine) {
+            realBody = joltEngine.createStaticBodyNoAdd(shape, pose);
+            wrapperBody = new org.ironmaple.simulation.physics.threading.ThreadedJoltBody(
+                    (org.ironmaple.simulation.physics.jolt.JoltBody) realBody, proxy);
         } else {
             realBody = realEngine.createStaticBody(shape, pose);
+            return realBody;
         }
+
+        // Link wrapper to real body for raycast identification
+        realBody.setUserData(wrapperBody);
 
         // Queue addition of the REAL body
         proxy.queueBodyAdd(realBody);
 
-        return new ThreadedBulletBody((BulletBody) realBody, proxy);
+        return wrapperBody;
     }
 
     @Override
     public void removeBody(PhysicsBody body) {
         if (body instanceof ThreadedBulletBody wrapper) {
             proxy.queueBodyRemoval(wrapper.getRealBody().getBodyId());
+        } else if (body instanceof org.ironmaple.simulation.physics.threading.ThreadedJoltBody wrapper) {
+            proxy.queueBodyRemoval(wrapper.getRealBody().getTrackingId());
         } else {
-            // Fallback for non-wrapped bodies (shouldn't happen if created via this engine)
+            // Fallback for non-wrapped bodies
             realEngine.removeBody(body);
         }
     }
@@ -93,6 +118,31 @@ public class ThreadedPhysicsEngine implements PhysicsEngine {
     @Override
     public void removeAllBodies() {
         realEngine.removeAllBodies();
+    }
+
+    @Override
+    public void addBody(PhysicsBody body) {
+        if (body != null) {
+            PhysicsBody realBody = body;
+            if (body instanceof ThreadedBulletBody wrapper) {
+                realBody = wrapper.getRealBody();
+            } else if (body instanceof org.ironmaple.simulation.physics.threading.ThreadedJoltBody wrapper) {
+                realBody = wrapper.getRealBody();
+            }
+            proxy.queueBodyAdd(realBody);
+        }
+    }
+
+    @Override
+    public List<PhysicsBody> getBodies() {
+        return realEngine.getBodies().stream()
+                .map(b -> {
+                    if (b.getUserData() instanceof PhysicsBody wrapper) {
+                        return wrapper;
+                    }
+                    return b;
+                })
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -128,11 +178,11 @@ public class ThreadedPhysicsEngine implements PhysicsEngine {
         // Unwrap/Wrap the hit body
         return realResult.map(r -> {
             PhysicsBody hitBody = r.hitBody();
-            // Check if there is a wrapper linked
-            if (hitBody.getUserData() instanceof ThreadedBulletBody wrapper) {
+            // Check if there is a wrapper linked (userData)
+            if (hitBody != null && hitBody.getUserData() instanceof PhysicsBody wrapper) {
                 return new RaycastResult(r.hitPoint(), r.hitNormal(), r.hitDistance(), wrapper);
             }
-            // If no wrapper found (e.g. internal body?), fallback to real body
+            // If no wrapper found, return original result
             return r;
         });
     }
@@ -147,7 +197,7 @@ public class ThreadedPhysicsEngine implements PhysicsEngine {
         List<PhysicsBody> overlaps = realEngine.getOverlappingBodies(shape, pose);
         return overlaps.stream()
                 .map(b -> {
-                    if (b.getUserData() instanceof ThreadedBulletBody wrapper) {
+                    if (b.getUserData() instanceof PhysicsBody wrapper) {
                         return wrapper;
                     }
                     return b;

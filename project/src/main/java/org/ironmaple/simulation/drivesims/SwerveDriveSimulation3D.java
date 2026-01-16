@@ -8,6 +8,7 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.units.measure.*;
 import java.util.Arrays;
 import java.util.Optional;
@@ -49,17 +50,17 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
 
     // ==================== Suspension Parameters ====================
 
-    /** Suspension spring constant (N/m). Reduced for softer ride and less oscillation. */
-    private static final double SUSPENSION_STIFFNESS = 10000.0;
+    /** Suspension spring constant (N/m). Lower = softer, less bouncy. */
+    private static final double SUSPENSION_STIFFNESS = 4000.0;
 
-    /** Target damping ratio. 0.7 = slightly underdamped (responsive feel). */
-    private static final double TARGET_DAMPING_RATIO = 0.7;
+    /** Target damping ratio. 1.0 = critically damped (no bounce). >1.0 = overdamped. */
+    private static final double TARGET_DAMPING_RATIO = 1.2;
 
     /** Compression damping multiplier (full damping on bump). */
-    private static final double COMPRESSION_DAMPING_MULT = 1.0;
+    private static final double COMPRESSION_DAMPING_MULT = 1.5;
 
-    /** Expansion damping multiplier (less damping on rebound for responsiveness). */
-    private static final double EXPANSION_DAMPING_MULT = 0.5;
+    /** Expansion damping multiplier (more damping on rebound to prevent bounce-back). */
+    private static final double EXPANSION_DAMPING_MULT = 1.2;
 
     /**
      * Rest length of suspension (meters). Equilibrium Z = chassisHeight + restLength + wheelRadius - compression at
@@ -115,7 +116,8 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
         // Register physics calculator on first tick (threaded mode only)
         if (isThreaded && !calculatorRegistered && proxy != null) {
             double robotMassKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
-            double tickPeriodSeconds = arena.getPhysicsTickPeriodSeconds();
+            double tickPeriodSeconds = arena.getPhysicsTickPeriodSeconds()
+                    / org.ironmaple.simulation.SimulatedArena3D.getPhysicsSubTicksPerFrame();
             physicsCalculator = new org.ironmaple.simulation.physics.threading.SwervePhysicsCalculator(
                     physicsBody, moduleTranslations, moduleSimulations, robotMassKg, tickPeriodSeconds);
             proxy.registerCalculator(physicsCalculator);
@@ -125,13 +127,8 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
             // + tickPeriodSeconds + "s");
         }
 
-        // Get body ID - works for both BulletBody and ThreadedBulletBody
-        int bodyId = -1;
-        if (physicsBody instanceof BulletBody bb) {
-            bodyId = bb.getBodyId();
-        } else if (physicsBody instanceof org.ironmaple.simulation.physics.threading.ThreadedBulletBody tbb) {
-            bodyId = tbb.getBodyId();
-        }
+        // Get body ID - works for all PhysicsBody implementations
+        int bodyId = physicsBody.getBodyId();
 
         // Get current pose and velocities
         Pose3d pose3d;
@@ -194,8 +191,10 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
         // In threaded mode, forces are calculated on the physics thread by
         // SwervePhysicsCalculator
         // In sync mode, we calculate and apply them directly here
-        if (!isThreaded) {
-            simulateModules(pose3d, linearVel, bodyId, proxy, state);
+        if (isThreaded) {
+            simulateModulesThreaded(pose3d, linearVel, proxy);
+        } else {
+            simulateModulesSync(pose3d, linearVel, bodyId);
         }
         // Note: In threaded mode, SwervePhysicsCalculator.applyForces() is called
         // by PhysicsThread each tick with CURRENT state, not stale cached state
@@ -325,7 +324,43 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
     /**
      *
      *
-     * <h2>Simulates All Swerve Modules (Suspension + Traction).</h2>
+     * <h2>Simulates Modules in Threaded Mode (Snapshotting).</h2>
+     *
+     * <p>Updates module states (Motor Sim) on Main Thread and queues them for Physics Thread.
+     */
+    private void simulateModulesThreaded(Pose3d pose3d, Translation3d linearVel, ThreadedPhysicsProxy proxy) {
+        var rotation = pose3d.getRotation();
+        Rotation2d robotHeading = rotation.toRotation2d();
+
+        // Assume even weight distribution for simulation purposes
+        double robotWeightNewtons = config.robotMass.in(Kilograms) * 9.81;
+        double normalForcePerWheel = robotWeightNewtons / moduleTranslations.length;
+
+        // Approximate ground velocity from robot velocity
+        org.dyn4j.geometry.Vector2 groundVelocity2d =
+                new org.dyn4j.geometry.Vector2(linearVel.getX(), linearVel.getY());
+
+        SwerveModuleState[] capturedStates = new SwerveModuleState[moduleSimulations.length];
+
+        for (int i = 0; i < moduleSimulations.length; i++) {
+            SwerveModuleSimulation module = moduleSimulations[i];
+
+            // Advance simulation using approximate inputs
+            // We use the same update method but ignore the force output
+            module.updateSimulationSubTickGetModuleForce(groundVelocity2d, robotHeading, normalForcePerWheel);
+
+            // Capture state
+            capturedStates[i] = module.getCurrentState();
+        }
+
+        // Queue snapshot
+        proxy.queueSwerveInput(capturedStates);
+    }
+
+    /**
+     *
+     *
+     * <h2>Simulates All Swerve Modules (Suspension + Traction) in Sync Mode.</h2>
      *
      * <p>Iterates through each module to:
      *
@@ -335,18 +370,11 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
      *   <li>Update module simulation with dynamic normal force
      *   <li>Apply resulting suspension and traction forces to the body
      * </ul>
-     *
-     * @param pose3d Current robot pose (from physics or cached state)
-     * @param linearVel Current linear velocity
-     * @param bodyId Body ID for threaded proxy (-1 if sync)
-     * @param proxy Threaded proxy (null if sync mode)
-     * @param state Cached simulation state (null if sync mode)
      */
-    private void simulateModules(
-            Pose3d pose3d, Translation3d linearVel, int bodyId, ThreadedPhysicsProxy proxy, SimulationState state) {
+    private void simulateModulesSync(Pose3d pose3d, Translation3d linearVel, int bodyId) {
         var rotation = pose3d.getRotation();
         Rotation2d robotHeading = rotation.toRotation2d();
-        boolean isThreaded = proxy != null;
+        boolean isThreaded = false; // Sync mode by definition
 
         // Calculate per-wheel mass for damping
         double robotMassKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
@@ -365,44 +393,40 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
                     rotatePoint(localMountPoint, rotation).plus(pose3d.getTranslation());
 
             Translation3d rayDirection = new Translation3d(0, 0, -1);
-            // Start raycast higher to avoid starting inside the ground if the robot sinks
-            double rayOriginOffset = 0.5;
-            Translation3d rayOrigin = worldMountPoint.plus(new Translation3d(0, 0, rayOriginOffset));
-            double maxRayDistance = SUSPENSION_REST_LENGTH + SUSPENSION_MAX_TRAVEL + WHEEL_RADIUS + rayOriginOffset;
+            // Start raycast from FIXED height above expected ground level
+            // This prevents the ray from following the robot as it falls
+            // Use a height that's well above the robot's maximum expected height
+            double fixedRayStartHeight = 0.5; // Start ray 0.5m above ground (well above robot top at ~0.18m)
+            Translation3d rayOrigin =
+                    new Translation3d(worldMountPoint.getX(), worldMountPoint.getY(), fixedRayStartHeight);
+            double maxRayDistance = fixedRayStartHeight + SUSPENSION_REST_LENGTH + SUSPENSION_MAX_TRAVEL + WHEEL_RADIUS;
 
-            // Get raycast result (sync: direct, threaded: from cached state)
+            // Get raycast result (Sync mode: direct)
             PhysicsEngine.RaycastResult hitResult = null;
-            if (isThreaded && state != null) {
-                // Look up result from PREVIOUS tick using stored ID
-                int prevRaycastId = lastQueuedRaycastIds[i];
-                if (prevRaycastId >= 0) {
-                    var optResult = proxy.getCachedRaycast(prevRaycastId);
-                    hitResult = optResult.orElse(null);
-                }
 
-                // Queue raycast for NEXT tick (store ID for use next frame)
-                int newId = proxy.queueRaycast(rayOrigin, rayDirection, maxRayDistance);
-                lastQueuedRaycastIds[i] = newId;
-            } else {
-                // Sync mode: direct raycast, excluding our own body
-                Optional<PhysicsEngine.RaycastResult> hit =
-                        physicsEngine.raycast(rayOrigin, rayDirection, maxRayDistance, physicsBody);
-                hitResult = hit.orElse(null);
-            }
+            // Sync mode: direct raycast, excluding our own body
+            Optional<PhysicsEngine.RaycastResult> hit =
+                    physicsEngine.raycast(rayOrigin, rayDirection, maxRayDistance, physicsBody);
+            hitResult = hit.orElse(null);
 
             double normalForceNewtons = 0.0;
             Translation3d suspensionForce = Translation3d.kZero;
 
             if (hitResult != null) {
-                double groundDistance = hitResult.hitDistance() - rayOriginOffset;
+                // Calculate distance from wheel center to ground
+                // Ray starts at fixedRayStartHeight and hits ground at hitDistance below that
+                // Wheel center is at worldMountPoint.getZ()
+                double groundHeight = fixedRayStartHeight - hitResult.hitDistance();
+                double wheelCenterHeight = worldMountPoint.getZ();
+                double groundDistance = wheelCenterHeight - groundHeight;
                 double suspensionCompression = SUSPENSION_REST_LENGTH + WHEEL_RADIUS - groundDistance;
 
                 if (suspensionCompression > 0) {
                     // Get velocity of mount point
                     Translation3d mountVelocity;
                     if (isThreaded) {
-                        // Approximate: use linear velocity (ignoring angular contribution for
-                        // simplicity)
+                        // This path is now unreachable in Sync Mode, but kept for logic structure if
+                        // merged later
                         mountVelocity = linearVel;
                     } else {
                         mountVelocity = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
@@ -428,7 +452,7 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
             // --- 2. Traction/Propulsion Calculation ---
             Translation3d pointVelocity3d;
             if (isThreaded) {
-                pointVelocity3d = linearVel; // Approximation for threaded mode
+                pointVelocity3d = linearVel; // Unreachable in Sync
             } else {
                 pointVelocity3d = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
             }
@@ -441,17 +465,11 @@ public class SwerveDriveSimulation3D extends AbstractDriveTrainSimulation3D {
             Translation3d tractionForce3d = new Translation3d(tractionForce2d.x, tractionForce2d.y, 0);
 
             // Apply forces (sync: direct, threaded: queue)
-            if (isThreaded) {
-                if (normalForceNewtons > 0) {
-                    proxy.queueForceAtPoint(bodyId, suspensionForce, worldMountPoint);
-                }
-                proxy.queueForceAtPoint(bodyId, tractionForce3d, worldMountPoint);
-            } else {
-                if (normalForceNewtons > 0) {
-                    physicsBody.applyForceAtPoint(suspensionForce, worldMountPoint);
-                }
-                physicsBody.applyForceAtPoint(tractionForce3d, worldMountPoint);
+            // Apply forces (Sync: direct)
+            if (normalForceNewtons > 0) {
+                physicsBody.applyForceAtPoint(suspensionForce, worldMountPoint);
             }
+            physicsBody.applyForceAtPoint(tractionForce3d, worldMountPoint);
 
             // Debug logging (only module 0)
             if (i == 0) {

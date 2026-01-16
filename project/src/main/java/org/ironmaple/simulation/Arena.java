@@ -60,6 +60,14 @@ public interface Arena {
     List<GamePiece> getGamePiecesByType(String type);
 
     /**
+     * Gets game pieces by type as an array.
+     *
+     * @param type the type of game piece
+     * @return array of game pieces
+     */
+    GamePiece[] getGamePiecesByTypeAsArray(String type);
+
+    /**
      * Adds to the score of the specified team.
      *
      * @param isBlue whether to add to the blue team

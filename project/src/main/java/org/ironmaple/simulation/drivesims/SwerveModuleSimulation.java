@@ -145,6 +145,19 @@ public class SwerveModuleSimulation {
     /**
      *
      *
+     * <h2>Sets the External Torque on the Steer Motor.</h2>
+     *
+     * <p>Simulates external forces like scrub torque and self-aligning torque.
+     *
+     * @param torque the torque to apply
+     */
+    public void setSteerExternalTorque(Torque torque) {
+        steerMotorSim.setExternalTorque(torque);
+    }
+
+    /**
+     *
+     *
      * <h2>Updates the Simulation for This Module.</h2>
      *
      * <p><strong>Note:</strong> Friction forces are not simulated in this method.
@@ -280,6 +293,59 @@ public class SwerveModuleSimulation {
         }
 
         // Combine forces into World Frame Vector
+        Vector2 longitudinalVector = Vector2.create(longitudinalForceNewtons, moduleWorldFacing.getRadians());
+        Vector2 lateralVector = wheelLeftDirection.product(lateralForceNewtons);
+
+        return longitudinalVector.sum(lateralVector);
+    }
+
+    /**
+     * Calculates the module force based on a specific state, without updating the simulation.
+     *
+     * @param state The state of the module (speed and angle)
+     * @param moduleCurrentGroundVelocity The current ground velocity
+     * @param robotFacing The robot's absolute facing
+     * @param grippingForceNewtons The gripping force limit
+     * @return The calculated force vector
+     */
+    public Vector2 getModuleForceFromState(
+            SwerveModuleState state,
+            Vector2 moduleCurrentGroundVelocity,
+            Rotation2d robotFacing,
+            double grippingForceNewtons) {
+
+        // 1. Calculate world facing from state angle (state.angle is chassis-relative)
+        Rotation2d moduleWorldFacing = state.angle.plus(robotFacing);
+
+        // 2. Calculate longitudinal force (Driving/Braking)
+        double floorVelocityProjectionOnWheelDirectionMPS = moduleCurrentGroundVelocity.getMagnitude()
+                * Math.cos(moduleCurrentGroundVelocity.getAngleBetween(new Vector2(moduleWorldFacing.getRadians())));
+
+        // Desired speed from snapshot
+        double desiredSpeedMPS = state.speedMetersPerSecond;
+
+        // Simple linear friction model for slip:
+        // Force = Stiffness * SlipVelocity
+        double longitudinalSlipVelocityMPS = desiredSpeedMPS - floorVelocityProjectionOnWheelDirectionMPS;
+        final double LONGITUDINAL_STIFFNESS = 1000.0; // N per m/s
+        double longitudinalForceNewtons = longitudinalSlipVelocityMPS * LONGITUDINAL_STIFFNESS;
+
+        // 3. Lateral Force (Cornering/Scrub)
+        Vector2 wheelLeftDirection =
+                new Vector2(moduleWorldFacing.plus(Rotation2d.fromDegrees(90)).getRadians());
+        double lateralVelocityMPS = moduleCurrentGroundVelocity.dot(wheelLeftDirection);
+        final double CORNERING_STIFFNESS = 500.0; // N per m/s
+        double lateralForceNewtons = -lateralVelocityMPS * CORNERING_STIFFNESS;
+
+        // 4. Traction Circle (Grip Limit)
+        double totalForceSq =
+                (longitudinalForceNewtons * longitudinalForceNewtons) + (lateralForceNewtons * lateralForceNewtons);
+        if (totalForceSq > grippingForceNewtons * grippingForceNewtons) {
+            double scale = grippingForceNewtons / Math.sqrt(totalForceSq);
+            longitudinalForceNewtons *= scale;
+            lateralForceNewtons *= scale;
+        }
+
         Vector2 longitudinalVector = Vector2.create(longitudinalForceNewtons, moduleWorldFacing.getRadians());
         Vector2 lateralVector = wheelLeftDirection.product(lateralForceNewtons);
 

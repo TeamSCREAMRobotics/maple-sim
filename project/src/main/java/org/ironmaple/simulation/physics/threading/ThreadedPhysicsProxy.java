@@ -240,19 +240,103 @@ public class ThreadedPhysicsProxy {
     /**
      * Flushes all queued inputs to the physics thread.
      *
-     * <p>Call this at the END of each simulation period.
+     * <p>Call this at the END of each simulation period. In lock-step mode, this also signals the physics thread to
+     * process the frame.
      */
     public void flushInputs() {
         frameNumber++;
         inputBuilder.frameNumber(frameNumber);
 
-        boolean wasEmpty = inputBuilder.isEmpty();
-        if (!wasEmpty) {
-            SimulationInputs built = inputBuilder.build();
-            physicsThread.submitInputs(built);
+        // Always build and submit, even if empty (physics still needs to run sub-ticks)
+        SimulationInputs built = inputBuilder.build();
+        physicsThread.submitInputs(built);
+
+        // In lock-step mode, signal the physics thread to wake up and process
+        if (physicsThread.isLockStepMode()) {
+            physicsThread.signalFrameReady();
         }
 
         inputBuilder.reset();
+    }
+
+    /**
+     * Flushes inputs and waits for the physics frame to complete.
+     *
+     * <p>This is the synchronous version of {@link #flushInputs()} that blocks until the physics thread has finished
+     * processing the frame. Use this when you need the latest physics state immediately.
+     *
+     * <p>In lock-step mode, this ensures deterministic behavior by waiting for the physics thread to complete before
+     * continuing.
+     *
+     * @return true if the frame completed successfully, false if interrupted
+     */
+    public boolean flushInputsAndWait() {
+        flushInputs();
+
+        if (physicsThread.isLockStepMode()) {
+            boolean completed = physicsThread.waitForFrameComplete();
+            if (completed) {
+                // Pull the fresh state immediately
+                pullLatestState();
+            }
+            return completed;
+        }
+        return true;
+    }
+
+    /**
+     * Flushes inputs and waits for frame completion with a timeout.
+     *
+     * @param timeoutMs Maximum time to wait in milliseconds
+     * @return true if completed within timeout, false otherwise
+     */
+    public boolean flushInputsAndWait(long timeoutMs) {
+        flushInputs();
+
+        if (physicsThread.isLockStepMode()) {
+            boolean completed = physicsThread.waitForFrameComplete(timeoutMs);
+            if (completed) {
+                pullLatestState();
+            }
+            return completed;
+        }
+        return true;
+    }
+
+    /**
+     * Waits for the current physics frame to complete without flushing new inputs.
+     *
+     * <p>Use this if you've already called {@link #flushInputs()} and want to wait for completion later.
+     *
+     * @return true if completed, false if interrupted
+     */
+    public boolean waitForFrameComplete() {
+        if (physicsThread.isLockStepMode()) {
+            boolean completed = physicsThread.waitForFrameComplete();
+            if (completed) {
+                pullLatestState();
+            }
+            return completed;
+        }
+        return true;
+    }
+
+    /**
+     * Checks if the physics thread is in lock-step mode.
+     *
+     * @return true if deterministic lock-step mode is enabled
+     */
+    public boolean isLockStepMode() {
+        return physicsThread.isLockStepMode();
+    }
+
+    /**
+     * Sets the physics thread's lock-step mode.
+     *
+     * @param lockStep true for deterministic lock-step, false for free-running
+     */
+    public void setLockStepMode(boolean lockStep) {
+        physicsThread.setLockStepMode(lockStep);
     }
 
     /**
@@ -283,6 +367,15 @@ public class ThreadedPhysicsProxy {
     }
 
     /**
+     * Queues swerve module states for the next frame.
+     *
+     * @param moduleStates The states of all swerve modules
+     */
+    public void queueSwerveInput(edu.wpi.first.math.kinematics.SwerveModuleState[] moduleStates) {
+        inputBuilder.setSwerveInput(moduleStates);
+    }
+
+    /**
      * Checks if the physics thread is running.
      *
      * @return true if running
@@ -308,7 +401,7 @@ public class ThreadedPhysicsProxy {
      * @param calculator The calculator to register
      */
     public void registerCalculator(PhysicsCalculator calculator) {
-        physicsThread.registerCalculator(calculator);
+        inputBuilder.addCalculator(calculator);
     }
 
     /**
@@ -318,6 +411,58 @@ public class ThreadedPhysicsProxy {
      */
     public void queueInput(java.util.function.Consumer<SimulationInputs.Builder> action) {
         action.accept(inputBuilder);
+    }
+
+    // ==================== ThreadedJoltBody Support Methods ====================
+
+    private final Map<Integer, Object> bodyUserData = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Gets the latest state from physics thread. */
+    public SimulationState getLatestState() {
+        return cachedState;
+    }
+
+    /** Queues a body pose update. */
+    public void queueBodyPoseUpdate(int bodyId, Pose3d pose) {
+        queuePoseReset(bodyId, pose);
+    }
+
+    /** Queues a body velocity update. */
+    public void queueBodyVelocityUpdate(int bodyId, Translation3d linear, Translation3d angular) {
+        queueVelocityReset(bodyId, linear, angular);
+    }
+
+    /** Queues a body force. */
+    public void queueBodyForce(int bodyId, Translation3d force, Translation3d point) {
+        if (point != null) {
+            queueForceAtPoint(bodyId, force, point);
+        } else {
+            queueCentralForce(bodyId, force);
+        }
+    }
+
+    /** Queues a body torque. */
+    public void queueBodyTorque(int bodyId, Translation3d torque) {
+        queueTorque(bodyId, torque);
+    }
+
+    /** Queues body damping update. */
+    public void queueBodyDamping(int bodyId, double linearDamping, double angularDamping) {
+        inputBuilder.addDamping(bodyId, linearDamping, angularDamping);
+    }
+
+    /** Sets user data for a body (stored locally in proxy). */
+    public void setBodyUserData(int bodyId, Object data) {
+        if (data == null) {
+            bodyUserData.remove(bodyId);
+        } else {
+            bodyUserData.put(bodyId, data);
+        }
+    }
+
+    /** Gets user data for a body. */
+    public Object getBodyUserData(int bodyId) {
+        return bodyUserData.get(bodyId);
     }
 
     private record RaycastRequest(Translation3d origin, Translation3d direction, double maxDistance) {}

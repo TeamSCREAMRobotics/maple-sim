@@ -2,6 +2,7 @@ package org.ironmaple.simulation.physics.threading;
 
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.math.kinematics.SwerveModuleState;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -34,7 +35,9 @@ public record SimulationInputs(
         List<VelocityResetCommand> velocityResets,
         List<RaycastRequest> raycastRequests,
         List<PhysicsBody> bodiesToAdd,
-        Optional<Translation3d> newGravity) {
+        Optional<Translation3d> newGravity,
+        Optional<SwerveInput> swerveInput,
+        List<PhysicsCalculator> newCalculators) {
     /** Empty inputs for initialization. */
     public static final SimulationInputs EMPTY = new SimulationInputs(
             0,
@@ -46,7 +49,9 @@ public record SimulationInputs(
             Collections.emptyList(),
             Collections.emptyList(),
             Collections.emptyList(),
-            Optional.empty());
+            Optional.empty(),
+            Optional.empty(),
+            Collections.emptyList());
 
     /**
      * Force to apply at a point on a body.
@@ -102,6 +107,13 @@ public record SimulationInputs(
      */
     public record RaycastRequest(int requestId, Translation3d origin, Translation3d direction, double maxDistance) {}
 
+    /**
+     * Snapshot of swerve module states for deterministic simulation.
+     *
+     * @param moduleStates The states of all modules in order
+     */
+    public record SwerveInput(SwerveModuleState[] moduleStates) {}
+
     /** Builder for constructing SimulationInputs. */
     public static class Builder {
         private long frameNumber;
@@ -114,6 +126,8 @@ public record SimulationInputs(
         private final List<RaycastRequest> raycastRequests = new ArrayList<>();
         private final List<PhysicsBody> bodiesToAdd = new ArrayList<>();
         private Optional<Translation3d> newGravity = Optional.empty();
+        private Optional<SwerveInput> swerveInput = Optional.empty();
+        private final List<PhysicsCalculator> newCalculators = new ArrayList<>();
         private int nextSpawnId = 0;
 
         public Builder frameNumber(long frameNumber) {
@@ -177,6 +191,22 @@ public record SimulationInputs(
             return this;
         }
 
+        public Builder addDamping(int bodyId, double linearDamping, double angularDamping) {
+            // Damping is applied immediately via direct body access - not batched
+            // This is a no-op in the builder; actual damping is set directly on bodies
+            return this;
+        }
+
+        public Builder setSwerveInput(SwerveModuleState[] moduleStates) {
+            this.swerveInput = Optional.of(new SwerveInput(moduleStates));
+            return this;
+        }
+
+        public Builder addCalculator(PhysicsCalculator calculator) {
+            this.newCalculators.add(calculator);
+            return this;
+        }
+
         public SimulationInputs build() {
             return new SimulationInputs(
                     frameNumber,
@@ -188,7 +218,9 @@ public record SimulationInputs(
                     List.copyOf(velocityResets),
                     List.copyOf(raycastRequests),
                     List.copyOf(bodiesToAdd),
-                    newGravity);
+                    newGravity,
+                    swerveInput,
+                    List.copyOf(newCalculators));
         }
 
         public void reset() {
@@ -201,6 +233,8 @@ public record SimulationInputs(
             raycastRequests.clear();
             bodiesToAdd.clear();
             newGravity = Optional.empty();
+            swerveInput = Optional.empty();
+            newCalculators.clear();
             nextSpawnId = 0;
         }
 
@@ -213,7 +247,9 @@ public record SimulationInputs(
                     && velocityResets.isEmpty()
                     && raycastRequests.isEmpty()
                     && bodiesToAdd.isEmpty()
-                    && newGravity.isEmpty();
+                    && newGravity.isEmpty()
+                    && swerveInput.isEmpty()
+                    && newCalculators.isEmpty();
         }
     }
 

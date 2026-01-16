@@ -170,4 +170,6 @@ public interface PhysicsBody {
      * @param angularDamping angular velocity damping coefficient
      */
     void setDamping(double linearDamping, double angularDamping);
+
+    int getBodyId();
 }

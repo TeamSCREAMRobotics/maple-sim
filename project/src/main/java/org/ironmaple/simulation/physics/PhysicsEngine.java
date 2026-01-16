@@ -93,6 +93,20 @@ public interface PhysicsEngine {
     void removeAllBodies();
 
     /**
+     * Adds an existing body to the physics world.
+     *
+     * @param body the body to add
+     */
+    void addBody(PhysicsBody body);
+
+    /**
+     * Gets all bodies in the physics world.
+     *
+     * @return list of all bodies
+     */
+    java.util.List<PhysicsBody> getBodies();
+
+    /**
      *
      *
      * <h2>Creates a Box Shape.</h2>

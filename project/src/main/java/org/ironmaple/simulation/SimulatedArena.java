@@ -707,8 +707,22 @@ public abstract class SimulatedArena implements Arena {
      *
      * @see #getGamePiecesPosesByType(String)
      */
-    public synchronized Pose3d[] getGamePiecesArrayByType(String type) {
+    public synchronized Pose3d[] getGamePiecePosesArrayByType(String type) {
         return getGamePiecesPosesByType(type).toArray(Pose3d[]::new);
+    }
+
+    /**
+     *
+     *
+     * <h2>Obtains the 3D Poses of a Specific Type of Game Piece as an array.</h2>
+     *
+     * @see #getGamePiecesPosesByType(String)
+     * @deprecated Use {@link #getGamePiecePosesArrayByType(String)} instead. This method name was confusing as it
+     *     implied returning GamePiece objects.
+     */
+    @Deprecated
+    public synchronized Pose3d[] getGamePiecesArrayByType(String type) {
+        return getGamePiecePosesArrayByType(type);
     }
 
     /**
@@ -753,6 +767,26 @@ public abstract class SimulatedArena implements Arena {
                 .collect(Collectors.toList());
     }
 
+    /**
+     *
+     *
+     * <h2>Returns all game pieces on the field of the specified type as an array</h2>
+     *
+     * @param type The string type to be selected.
+     * @return The game pieces as an array of {@link GamePiece}
+     */
+    public synchronized GamePiece[] getGamePiecesByTypeAsArray(String type) {
+        return getGamePiecesByType(type).toArray(GamePiece[]::new);
+    }
+
+    /**
+     *
+     *
+     * <h2>Returns all game pieces on the field of the specified type as an array</h2>
+     *
+     * @param type The string type to be selected.
+     * @return The game pieces as an array of {@link GamePiece}
+     */
     /**
      *
      *

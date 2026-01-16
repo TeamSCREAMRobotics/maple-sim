@@ -164,7 +164,7 @@ public class BulletPhysicsEngine implements PhysicsEngine {
      *
      * @return a copy of the collection of all bodies
      */
-    public synchronized java.util.Collection<PhysicsBody> getBodies() {
+    public synchronized java.util.List<PhysicsBody> getBodies() {
         return new java.util.ArrayList<>(bodyMap.values());
     }
 
