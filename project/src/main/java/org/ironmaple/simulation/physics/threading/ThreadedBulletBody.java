@@ -156,6 +156,16 @@ public class ThreadedBulletBody implements PhysicsBody {
     }
 
     @Override
+    public void setFriction(double friction) {
+        realBody.setFriction(friction);
+    }
+
+    @Override
+    public void setRestitution(double restitution) {
+        realBody.setRestitution(restitution);
+    }
+
+    @Override
     public void setDamping(double linearDamping, double angularDamping) {
         // Damping setting is not currently supported in SimulationInputs / Proxy.
         // We should add it if needed. For now, we unfortunately bypass or ignore.
@@ -187,6 +197,16 @@ public class ThreadedBulletBody implements PhysicsBody {
         // AND synchronization on engine might protect it if it's atomic update in
         // Bullet.
         realBody.setDamping(linearDamping, angularDamping);
+    }
+
+    @Override
+    public void setContactReporting(boolean enable) {
+        realBody.setContactReporting(enable);
+    }
+
+    @Override
+    public void setCollisionLayer(int layer) {
+        realBody.setCollisionLayer(layer);
     }
 
     private Object userData;

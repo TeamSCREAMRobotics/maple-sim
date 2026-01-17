@@ -66,6 +66,29 @@ public interface PhysicsEngine {
     /**
      *
      *
+     * <h2>Creates a Dynamic (Movable) Body with Specific Physical Properties.</h2>
+     *
+     * @param shape the collision shape
+     * @param massKg the mass in kilograms
+     * @param friction the friction coefficient
+     * @param restitution the coefficient of restitution (bounciness)
+     * @param linearDamping the linear damping coefficient
+     * @param angularDamping the angular damping coefficient
+     * @param initialPose the initial pose
+     * @return the created physics body
+     */
+    PhysicsBody createDynamicBody(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose);
+
+    /**
+     *
+     *
      * <h2>Creates a Static (Immovable) Body.</h2>
      *
      * <p>Static bodies are used for walls, field elements, etc.
@@ -75,6 +98,20 @@ public interface PhysicsEngine {
      * @return the created physics body
      */
     PhysicsBody createStaticBody(PhysicsShape shape, Pose3d pose);
+
+    /**
+     *
+     *
+     * <h2>Creates a compound shape with an offset.</h2>
+     *
+     * <p>Wraps the given shape in a compound shape that applies the specified translation offset. This is useful for
+     * offsetting the Center of Mass relative to the visual/collision center.
+     *
+     * @param shape the base shape
+     * @param offset the translation offset to apply to the shape
+     * @return a new physics shape representing the offset shape
+     */
+    PhysicsShape createOffsetShape(PhysicsShape shape, Translation3d offset);
 
     /**
      *

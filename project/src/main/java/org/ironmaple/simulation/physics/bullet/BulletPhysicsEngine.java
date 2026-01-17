@@ -112,6 +112,47 @@ public class BulletPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
+    public synchronized PhysicsBody createDynamicBody(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose) {
+        PhysicsBody body = createDynamicBodyNoAdd(
+                shape, massKg, friction, restitution, linearDamping, angularDamping, initialPose);
+        addBody(body);
+        return body;
+    }
+
+    /** Creates a dynamic body without adding it to the physics space. */
+    public PhysicsBody createDynamicBodyNoAdd(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose) {
+        BulletShape bulletShape = (BulletShape) shape;
+        PhysicsRigidBody rigidBody = new PhysicsRigidBody(bulletShape.getCollisionShape(), (float) massKg);
+
+        // Set initial pose
+        rigidBody.setPhysicsLocation(toVector3f(initialPose.getTranslation()));
+        rigidBody.setPhysicsRotation(toQuaternion(initialPose.getRotation()));
+
+        // Apply physical properties
+        rigidBody.setFriction((float) friction);
+        rigidBody.setRestitution((float) restitution);
+        rigidBody.setLinearDamping((float) linearDamping);
+        rigidBody.setAngularDamping((float) angularDamping);
+
+        BulletBody body = new BulletBody(rigidBody, false);
+        return body;
+    }
+
+    @Override
     public synchronized PhysicsBody createStaticBody(PhysicsShape shape, Pose3d pose) {
         PhysicsBody body = createStaticBodyNoAdd(shape, pose);
         addBody(body);
@@ -173,6 +214,25 @@ public class BulletPhysicsEngine implements PhysicsEngine {
         BoxCollisionShape box = new BoxCollisionShape(
                 (float) halfExtentsMeters.getX(), (float) halfExtentsMeters.getY(), (float) halfExtentsMeters.getZ());
         return new BulletShape(box, PhysicsShape.ShapeType.BOX);
+    }
+
+    @Override
+    public PhysicsShape createOffsetShape(PhysicsShape shape, Translation3d offset) {
+        return createOffsetShapeInternal(shape, offset);
+    }
+
+    private PhysicsShape createOffsetShapeInternal(PhysicsShape shape, Translation3d offset) {
+        BulletShape bulletShape = (BulletShape) shape;
+        com.jme3.bullet.collision.shapes.CollisionShape baseShape = bulletShape.getCollisionShape();
+
+        // Create a compound shape
+        com.jme3.bullet.collision.shapes.CompoundCollisionShape compound =
+                new com.jme3.bullet.collision.shapes.CompoundCollisionShape();
+
+        // Add child shape with offset
+        compound.addChildShape(baseShape, toVector3f(offset), com.jme3.math.Matrix3f.IDENTITY);
+
+        return new BulletShape(compound, PhysicsShape.ShapeType.COMPOUND);
     }
 
     @Override

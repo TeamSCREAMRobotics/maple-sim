@@ -171,4 +171,26 @@ public class BulletBody implements PhysicsBody {
     public void setDamping(double linearDamping, double angularDamping) {
         rigidBody.setDamping((float) linearDamping, (float) angularDamping);
     }
+
+    @Override
+    public void setFriction(double friction) {
+        rigidBody.setFriction((float) friction);
+    }
+
+    @Override
+    public void setRestitution(double restitution) {
+        rigidBody.setRestitution((float) restitution);
+    }
+
+    @Override
+    public void setContactReporting(boolean enable) {
+        // Bullet default behavior involves collision groups/masks
+        // Not implemented in this simplified wrapper yet
+    }
+
+    @Override
+    public void setCollisionLayer(int layer) {
+        // Bullet uses collision groups (bitmasks)
+        // Not implemented in this simplified wrapper yet
+    }
 }

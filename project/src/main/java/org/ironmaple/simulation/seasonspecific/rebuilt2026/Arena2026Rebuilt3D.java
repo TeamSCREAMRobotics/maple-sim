@@ -17,11 +17,13 @@ import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
 import org.ironmaple.simulation.SimulatedArena3D;
+import org.ironmaple.simulation.gamepieces.FuelBall;
 import org.ironmaple.simulation.gamepieces.GamePieceOnFieldSimulation3D;
 import org.ironmaple.simulation.physics.PhysicsShape;
 import org.ironmaple.simulation.physics.threading.PhysicsThreadConfig;
 
 public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
+    protected final boolean useAdvancedFuelPhysics;
     protected boolean shouldClock = true;
     protected double clock = 0;
     protected boolean blueIsOnClock = Math.random() < 0.5;
@@ -48,11 +50,16 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
     private double fuelSeparationGap = 0.001; // 1mm
 
     public Arena2026Rebuilt3D() {
-        this(PhysicsThreadConfig.DEFAULT);
+        this(PhysicsThreadConfig.DEFAULT, false);
     }
 
     public Arena2026Rebuilt3D(PhysicsThreadConfig config) {
+        this(config, false);
+    }
+
+    public Arena2026Rebuilt3D(PhysicsThreadConfig config, boolean useAdvancedFuelPhysics) {
         super(new RebuiltFieldObstacleMap3D(), config);
+        this.useAdvancedFuelPhysics = useAdvancedFuelPhysics;
 
         blueHub = new RebuiltHub(this, true);
         this.addCustomSimulation(blueHub);
@@ -65,8 +72,10 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
 
         redOutpost = new RebuiltOutpost(this, false);
         this.addCustomSimulation(redOutpost);
+    }
 
-        placeGamePiecesOnField();
+    public void setNeutralFuelCount(int neutralFuelCount) {
+        this.neutralFuelCount = Math.min(neutralFuelCount, 600);
     }
 
     /**
@@ -114,9 +123,14 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
     @Override
     public void placeGamePiecesOnField() {
         // Fuel diameter - 2 * 3.5 inches = 7 inches = ~0.18m, using 0.15 for simulation
-        double fuelDiameter = 0.15;
-        double fuelRadius = fuelDiameter / 2;
-        double spacing = fuelDiameter + fuelSeparationGap;
+        // Fuel diameter - 2 * 3.5 inches = 7 inches = ~0.18m, using 0.15 for simulation
+        // Account for 2% variance in radius (4% in diameter) to prevent layout overlap
+        double nominalDiameter = 0.15;
+        double maxDiameter = nominalDiameter * 1.04;
+
+        double fuelRadius = nominalDiameter / 2;
+        // Spacing uses MAX possible diameter to ensure no overlap + gap
+        double spacing = maxDiameter + fuelSeparationGap;
 
         double boundingBoxWidth = edu.wpi.first.units.Units.Inches.of(206).in(edu.wpi.first.units.Units.Meters);
         double boundingBoxDepth = edu.wpi.first.units.Units.Inches.of(72).in(edu.wpi.first.units.Units.Meters);
@@ -160,9 +174,10 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
                 "Fuel",
                 fuelShape,
                 Kilograms.of(0.2), // map mass
-                0.5, // friction
-                0.5, // restitution
-                0.1 // linear damping
+                0.8, // friction
+                1.0, // linear damping
+                4.0, // angular damping (high rolling resistance)
+                0.1 // restitution
                 );
 
         while (added < neutralFuelCount && piecesAvailable) {
@@ -173,15 +188,26 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
                 java.util.List<Translation2d> q = quadrants.get(i);
                 if (indices[i] < q.size()) {
                     Translation2d pos2d = q.get(indices[i]);
-                    // Spawn 3D piece
-                    GamePieceOnFieldSimulation3D piece = new GamePieceOnFieldSimulation3D(
-                            this,
-                            fuelInfo,
-                            new Pose3d(
-                                    pos2d.getX(),
-                                    pos2d.getY(),
-                                    fuelRadius,
-                                    new edu.wpi.first.math.geometry.Rotation3d()));
+                    GamePieceOnFieldSimulation3D piece;
+                    if (useAdvancedFuelPhysics) {
+                        piece = new FuelBall(
+                                this,
+                                new Pose3d(
+                                        pos2d.getX(),
+                                        pos2d.getY(),
+                                        fuelRadius * 1.03,
+                                        new edu.wpi.first.math.geometry.Rotation3d()));
+                    } else {
+                        // Spawn 3D piece (Standard)
+                        piece = new GamePieceOnFieldSimulation3D(
+                                this,
+                                fuelInfo,
+                                new Pose3d(
+                                        pos2d.getX(),
+                                        pos2d.getY(),
+                                        fuelRadius * 1.03,
+                                        new edu.wpi.first.math.geometry.Rotation3d()));
+                    }
                     // Register dynamic body
                     dynamicBodies.put(piece, piece.getPhysicsBody());
 
@@ -201,26 +227,56 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
 
                 // Blue side
                 Translation2d bluePos = new Translation2d(x, y);
-                GamePieceOnFieldSimulation3D pieceBlue = new GamePieceOnFieldSimulation3D(
-                        this,
-                        fuelInfo,
-                        new Pose3d(
-                                bluePos.getX(),
-                                bluePos.getY(),
-                                fuelRadius,
-                                new edu.wpi.first.math.geometry.Rotation3d()));
+                GamePieceOnFieldSimulation3D pieceBlue;
+                if (useAdvancedFuelPhysics) {
+                    pieceBlue = new FuelBall(
+                            this,
+                            new Pose3d(
+                                    bluePos.getX(),
+                                    bluePos.getY(),
+                                    // Spawn Z: Nominal radius + 3% (2% variance + 1% safety) to prevent floor
+                                    // penetration
+                                    fuelRadius * 1.03,
+                                    new edu.wpi.first.math.geometry.Rotation3d()));
+                } else {
+                    pieceBlue = new GamePieceOnFieldSimulation3D(
+                            this,
+                            fuelInfo,
+                            new Pose3d(
+                                    bluePos.getX(),
+                                    bluePos.getY(),
+                                    // Spawn Z: Nominal radius + 3% (2% variance + 1% safety) to prevent floor
+                                    // penetration
+                                    fuelRadius * 1.03,
+                                    new edu.wpi.first.math.geometry.Rotation3d()));
+                }
                 dynamicBodies.put(pieceBlue, pieceBlue.getPhysicsBody());
 
                 // Red side (mirrored)
                 Translation2d redPos = flip(bluePos);
-                GamePieceOnFieldSimulation3D pieceRed = new GamePieceOnFieldSimulation3D(
-                        this,
-                        fuelInfo,
-                        new Pose3d(
-                                redPos.getX(),
-                                redPos.getY(),
-                                fuelRadius,
-                                new edu.wpi.first.math.geometry.Rotation3d()));
+                GamePieceOnFieldSimulation3D pieceRed;
+                if (useAdvancedFuelPhysics) {
+                    pieceRed = new FuelBall(
+                            this,
+                            new Pose3d(
+                                    redPos.getX(),
+                                    redPos.getY(),
+                                    // Spawn Z: Nominal radius + 3% (2% variance + 1% safety) to prevent floor
+                                    // penetration
+                                    fuelRadius * 1.03,
+                                    new edu.wpi.first.math.geometry.Rotation3d()));
+                } else {
+                    pieceRed = new GamePieceOnFieldSimulation3D(
+                            this,
+                            fuelInfo,
+                            new Pose3d(
+                                    redPos.getX(),
+                                    redPos.getY(),
+                                    // Spawn Z: Nominal radius + 3% (2% variance + 1% safety) to prevent floor
+                                    // penetration
+                                    fuelRadius * 1.03,
+                                    new edu.wpi.first.math.geometry.Rotation3d()));
+                }
                 dynamicBodies.put(pieceRed, pieceRed.getPhysicsBody());
             }
         }

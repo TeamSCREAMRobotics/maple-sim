@@ -13,4 +13,4 @@
     - [ ] Fuel in teleop & auto
     - [ ] Climbing in teleop & auto
 - [ ] Human player
-- [ ] Soft body Fuel simulation
+- [x] Soft body Fuel simulation

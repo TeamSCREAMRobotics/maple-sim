@@ -34,13 +34,13 @@ import org.ironmaple.simulation.physics.PhysicsEngine;
 public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalculator {
 
     // ==================== Suspension Parameters ====================
-    private static final double SUSPENSION_STIFFNESS = 4000.0;
+    // ==================== Suspension Parameters ====================
+    // ==================== Suspension Parameters ====================
+    // ==================== Suspension Parameters ====================
+    private static final double SUSPENSION_STIFFNESS = 12000.0;
     private static final double TARGET_DAMPING_RATIO = 1.2;
     private static final double COMPRESSION_DAMPING_MULT = 1.5;
     private static final double EXPANSION_DAMPING_MULT = 1.2;
-    private static final double SUSPENSION_REST_LENGTH = 0.05;
-    private static final double WHEEL_RADIUS = 0.0508;
-    private static final double CHASSIS_HEIGHT = 0.1;
     private static final double MAX_SUSPENSION_FORCE = 1000.0;
     private static final double RAYCAST_ORIGIN_OFFSET = 0.5;
 
@@ -51,10 +51,15 @@ public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalcul
     private final PacejkaTireModel tireModel;
     private final double robotMassKg;
     private final double tickPeriodSeconds;
+
     private final java.util.concurrent.atomic.AtomicReference<double[]> latestNormalForces =
             new java.util.concurrent.atomic.AtomicReference<>(new double[0]);
     private final java.util.concurrent.atomic.AtomicReference<TireForceResult[]> latestTireResults =
             new java.util.concurrent.atomic.AtomicReference<>(new TireForceResult[0]);
+
+    private final double suspensionRestLength;
+    private final double wheelRadius;
+    private final double chassisHeight;
 
     // ==================== State ====================
     private volatile SwerveModuleState[] capturedStates = null;
@@ -65,18 +70,16 @@ public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalcul
      * <h2>Creates a High-Fidelity Swerve Physics Calculator.</h2>
      *
      * @param chassisBody the chassis physics body (will be unwrapped if threaded wrapper)
-     * @param moduleOffsets Translation2d positions of each module relative to chassis center
+     * @param config the drivetrain simulation configuration
      * @param hifiConfig high-fidelity simulation configuration
      * @param tireModel the Pacejka tire model to use
-     * @param robotMassKg robot mass in kilograms
      * @param tickPeriodSeconds the physics tick period in seconds
      */
     public HighFidelitySwervePhysicsCalculator(
             PhysicsBody chassisBody,
-            Translation2d[] moduleOffsets,
+            org.ironmaple.simulation.drivesims.configs.DriveTrainSimulationConfig config,
             HighFidelitySwerveSim3DConfig hifiConfig,
             PacejkaTireModel tireModel,
-            double robotMassKg,
             double tickPeriodSeconds) {
 
         // Unwrap threaded wrappers to get the real body for direct physics thread
@@ -89,11 +92,31 @@ public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalcul
             this.chassisBody = chassisBody;
         }
 
-        this.moduleOffsets = moduleOffsets.clone();
+        this.moduleOffsets = config.moduleTranslations.clone();
         this.hifiConfig = hifiConfig;
         this.tireModel = tireModel;
-        this.robotMassKg = robotMassKg;
+        this.robotMassKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
         this.tickPeriodSeconds = tickPeriodSeconds;
+
+        double groundClearance = config.groundClearance.in(edu.wpi.first.units.Units.Meters);
+
+        // Calculate rest length
+        double massPerWheel = robotMassKg / moduleOffsets.length;
+        double weightPerWheel = massPerWheel * 9.81;
+        double staticCompression = weightPerWheel / SUSPENSION_STIFFNESS;
+        this.suspensionRestLength = groundClearance + staticCompression;
+
+        this.wheelRadius = config.wheelRadius.in(edu.wpi.first.units.Units.Meters);
+        this.chassisHeight = config.chassisHeight.in(edu.wpi.first.units.Units.Meters);
+
+        // Determine COM height (same logic as AbstractDriveTrainSimulation3D)
+        double geometricCenterZ = groundClearance + this.chassisHeight / 2.0;
+        double targetComZ = config.centerOfMass.getZ();
+        if (targetComZ < 0.01 || targetComZ > 1.0) {
+            targetComZ = geometricCenterZ;
+        }
+        this.comHeightAboveGround = targetComZ;
+        this.mountPointZ = groundClearance + wheelRadius - comHeightAboveGround;
 
         // Initialize with empty arrays
         this.latestNormalForces.set(new double[moduleOffsets.length]);
@@ -101,6 +124,9 @@ public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalcul
         java.util.Arrays.fill(initialTireResults, TireForceResult.zero());
         this.latestTireResults.set(initialTireResults);
     }
+
+    private final double comHeightAboveGround;
+    private final double mountPointZ;
 
     public double[] getLatestNormalForces() {
         return latestNormalForces.get();
@@ -148,15 +174,14 @@ public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalcul
             SwerveModuleState moduleState = capturedStates[i];
 
             // --- 1. Calculate World Mount Point ---
-            Translation3d localMountPoint =
-                    new Translation3d(moduleOffset.getX(), moduleOffset.getY(), -CHASSIS_HEIGHT / 2);
+            Translation3d localMountPoint = new Translation3d(moduleOffset.getX(), moduleOffset.getY(), mountPointZ);
             Translation3d worldMountPoint =
                     rotatePoint(localMountPoint, rotation).plus(pose3d.getTranslation());
 
             // --- 2. Raycast for Ground Detection ---
             Translation3d rayDirection = new Translation3d(0, 0, -1);
             Translation3d rayOrigin = worldMountPoint.plus(new Translation3d(0, 0, RAYCAST_ORIGIN_OFFSET));
-            double maxRayDistance = SUSPENSION_REST_LENGTH + 0.1 + WHEEL_RADIUS + RAYCAST_ORIGIN_OFFSET;
+            double maxRayDistance = suspensionRestLength + 0.1 + wheelRadius + RAYCAST_ORIGIN_OFFSET;
 
             Optional<PhysicsEngine.RaycastResult> hitOpt =
                     engine.raycast(rayOrigin, rayDirection, maxRayDistance, chassisBody);
@@ -167,13 +192,12 @@ public class HighFidelitySwervePhysicsCalculator implements ThreadedSwerveCalcul
 
             if (hitResult != null) {
                 double groundDistance = hitResult.hitDistance() - RAYCAST_ORIGIN_OFFSET;
-                double suspensionCompression = SUSPENSION_REST_LENGTH + WHEEL_RADIUS - groundDistance;
+                double suspensionCompression = suspensionRestLength + wheelRadius - groundDistance;
 
                 if (suspensionCompression > 0) {
                     // Get ACTUAL velocity at mount point
                     Translation3d mountVelocity = chassisBody.getLinearVelocityAtPointMPS(worldMountPoint);
                     double compressionVelocity = -mountVelocity.getZ();
-
                     double dampingCoeff = compressionVelocity > 0
                             ? baseDamping * COMPRESSION_DAMPING_MULT
                             : baseDamping * EXPANSION_DAMPING_MULT;

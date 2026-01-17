@@ -31,14 +31,12 @@ import org.ironmaple.simulation.physics.PhysicsEngine;
 public class SwervePhysicsCalculator implements ThreadedSwerveCalculator {
 
     // ==================== Suspension Parameters ====================
-    private static final double SUSPENSION_STIFFNESS = 4000.0;
+    // ==================== Suspension Parameters ====================
+    private static final double SUSPENSION_STIFFNESS = 12000.0;
     private static final double TARGET_DAMPING_RATIO = 1.2;
     private static final double COMPRESSION_DAMPING_MULT = 1.5;
     private static final double EXPANSION_DAMPING_MULT = 1.2;
-    private static final double SUSPENSION_REST_LENGTH = 0.05;
     private static final double SUSPENSION_MAX_TRAVEL = 0.1;
-    private static final double WHEEL_RADIUS = 0.0508;
-    private static final double CHASSIS_HEIGHT = 0.1;
     private static final double MAX_SUSPENSION_FORCE = 1000.0;
     private static final double RAYCAST_ORIGIN_OFFSET = 0.5;
 
@@ -49,20 +47,20 @@ public class SwervePhysicsCalculator implements ThreadedSwerveCalculator {
     private final Time tickPeriod;
     private volatile SwerveModuleState[] capturedStates = null;
 
+    private final double suspensionRestLength;
+    private final double wheelRadius;
+    private final double chassisHeight;
+
     /**
      * Creates a swerve physics calculator.
      *
      * @param chassisBody The chassis physics body
-     * @param moduleOffsets Translation2d positions of each module relative to chassis center
-     * @param modules The swerve module simulations
-     * @param robotMassKg Robot mass in kilograms
+     * @param config The drivetrain simulation configuration
      * @param tickPeriodSeconds The physics tick period in seconds (e.g., 1.0/120 for 120Hz)
      */
     public SwervePhysicsCalculator(
             PhysicsBody chassisBody,
-            Translation2d[] moduleOffsets,
-            SwerveModuleSimulation[] modules,
-            double robotMassKg,
+            org.ironmaple.simulation.drivesims.configs.DriveTrainSimulationConfig config,
             double tickPeriodSeconds) {
         // Unwrap threaded wrappers to get the real body for direct physics thread
         // access
@@ -73,11 +71,37 @@ public class SwervePhysicsCalculator implements ThreadedSwerveCalculator {
         } else {
             this.chassisBody = chassisBody;
         }
-        this.moduleOffsets = moduleOffsets.clone();
-        this.modules = modules;
-        this.robotMassKg = robotMassKg;
+        this.moduleOffsets = config.moduleTranslations.clone();
+        this.modules = java.util.Arrays.stream(config.swerveModuleSimulationFactories)
+                .map(java.util.function.Supplier::get)
+                .toArray(SwerveModuleSimulation[]::new);
+        this.robotMassKg = config.robotMass.in(edu.wpi.first.units.Units.Kilograms);
         this.tickPeriod = Seconds.of(tickPeriodSeconds);
+
+        double groundClearance = config.groundClearance.in(edu.wpi.first.units.Units.Meters);
+
+        // Calculate rest length
+        double massPerWheel = robotMassKg / moduleOffsets.length;
+        double weightPerWheel = massPerWheel * 9.81;
+        double staticCompression = weightPerWheel / SUSPENSION_STIFFNESS;
+        this.suspensionRestLength = groundClearance + staticCompression;
+
+        this.wheelRadius = config.wheelRadius.in(edu.wpi.first.units.Units.Meters);
+        this.chassisHeight = config.chassisHeight.in(edu.wpi.first.units.Units.Meters);
+
+        // Determine COM height (same logic as AbstractDriveTrainSimulation3D)
+        double geometricCenterZ = groundClearance + this.chassisHeight / 2.0;
+        double targetComZ = config.centerOfMass.getZ();
+        if (targetComZ < 0.01 || targetComZ > 1.0) {
+            targetComZ = geometricCenterZ;
+        }
+        this.comHeightAboveGround = targetComZ;
+        double wheelRadius = config.wheelRadius.in(edu.wpi.first.units.Units.Meters);
+        this.mountPointZ = groundClearance + wheelRadius - comHeightAboveGround;
     }
+
+    private final double comHeightAboveGround;
+    private final double mountPointZ;
 
     /**
      * Updates the captured states for the next tick.
@@ -107,16 +131,14 @@ public class SwervePhysicsCalculator implements ThreadedSwerveCalculator {
             SwerveModuleSimulation module = modules[i];
 
             // --- 1. Calculate World Mount Point ---
-            Translation3d localMountPoint =
-                    new Translation3d(moduleOffset.getX(), moduleOffset.getY(), -CHASSIS_HEIGHT / 2);
+            Translation3d localMountPoint = new Translation3d(moduleOffset.getX(), moduleOffset.getY(), mountPointZ);
             Translation3d worldMountPoint =
                     rotatePoint(localMountPoint, rotation).plus(pose3d.getTranslation());
 
             // --- 2. Raycast for Ground Detection ---
             Translation3d rayDirection = new Translation3d(0, 0, -1);
             Translation3d rayOrigin = worldMountPoint.plus(new Translation3d(0, 0, RAYCAST_ORIGIN_OFFSET));
-            double maxRayDistance =
-                    SUSPENSION_REST_LENGTH + SUSPENSION_MAX_TRAVEL + WHEEL_RADIUS + RAYCAST_ORIGIN_OFFSET;
+            double maxRayDistance = suspensionRestLength + SUSPENSION_MAX_TRAVEL + wheelRadius + RAYCAST_ORIGIN_OFFSET;
 
             // Exclude chassisBody from raycast to prevent self-collision
             Optional<PhysicsEngine.RaycastResult> hitOpt =
@@ -128,7 +150,7 @@ public class SwervePhysicsCalculator implements ThreadedSwerveCalculator {
 
             if (hitResult != null) {
                 double groundDistance = hitResult.hitDistance() - RAYCAST_ORIGIN_OFFSET;
-                double suspensionCompression = SUSPENSION_REST_LENGTH + WHEEL_RADIUS - groundDistance;
+                double suspensionCompression = suspensionRestLength + wheelRadius - groundDistance;
 
                 if (suspensionCompression > 0) {
                     // Get ACTUAL velocity at mount point (not approximation!)

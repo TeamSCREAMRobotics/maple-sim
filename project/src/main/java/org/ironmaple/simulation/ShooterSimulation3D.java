@@ -256,7 +256,6 @@ public class ShooterSimulation3D implements SimulatedArena3D.Simulatable {
         // 3. Create physics-enabled game piece (uses Bullet 3D physics for real
         // collisions)
         SimulatedArena3D arena = SimulatedArena3D.getInstance();
-
         // Create sphere shape for fuel ball (approximate radius)
         double fuelRadius = 0.05; // 5cm radius for fuel ball (TODO: get from gamePieceInfo)
         var shape = arena.getPhysicsEngine().createSphereShape(fuelRadius);
@@ -265,6 +264,7 @@ public class ShooterSimulation3D implements SimulatedArena3D.Simulatable {
                 gamePieceInfo.type(),
                 shape,
                 gamePieceInfo.gamePieceMass(),
+                0.8, // friction
                 0.1, // linearDamping
                 0.1, // angularDamping
                 0.5 // restitution (bounciness)

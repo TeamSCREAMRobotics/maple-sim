@@ -31,6 +31,7 @@ public class GamePieceOnFieldSimulation3D implements GamePiece, SimulatedArena3D
             String type,
             PhysicsShape shape,
             Mass mass,
+            double friction,
             double linearDamping,
             double angularDamping,
             double coefficientOfRestitution) {}
@@ -49,7 +50,13 @@ public class GamePieceOnFieldSimulation3D implements GamePiece, SimulatedArena3D
         PhysicsEngine engine = arena.getPhysicsEngine();
 
         this.physicsBody = engine.createDynamicBody(
-                info.shape(), info.mass().in(edu.wpi.first.units.Units.Kilograms), initialPose);
+                info.shape(),
+                info.mass().in(edu.wpi.first.units.Units.Kilograms),
+                info.friction(),
+                info.coefficientOfRestitution(),
+                info.linearDamping(),
+                info.angularDamping(),
+                initialPose);
         this.physicsBody.setUserData(this);
         this.callback = () -> {}; // Default no-op callback
 

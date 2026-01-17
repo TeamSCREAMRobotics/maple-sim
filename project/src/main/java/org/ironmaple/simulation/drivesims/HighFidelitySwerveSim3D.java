@@ -92,13 +92,11 @@ public class HighFidelitySwerveSim3D extends AbstractDriveTrainSimulation3D {
     private final double[] lastSelfAligningTorques;
 
     // ==================== Suspension Parameters ====================
-    private static final double SUSPENSION_STIFFNESS = 4000.0;
+    private static final double SUSPENSION_STIFFNESS = 12000.0;
     private static final double TARGET_DAMPING_RATIO = 1.2;
     private static final double COMPRESSION_DAMPING_MULT = 1.5;
     private static final double EXPANSION_DAMPING_MULT = 1.2;
-    private static final double SUSPENSION_REST_LENGTH = 0.05;
-    private static final double WHEEL_RADIUS = 0.0508;
-    private static final double CHASSIS_HEIGHT = 0.1;
+    private static final double SUSPENSION_MAX_TRAVEL = 0.1;
     private static final double MAX_SUSPENSION_FORCE = 1000.0;
     private static final double RAYCAST_ORIGIN_OFFSET = 0.5;
 
@@ -231,13 +229,17 @@ public class HighFidelitySwerveSim3D extends AbstractDriveTrainSimulation3D {
         double criticalDamping = 2.0 * Math.sqrt(SUSPENSION_STIFFNESS * massPerWheel);
         double baseDamping = TARGET_DAMPING_RATIO * criticalDamping;
 
+        double groundClearance = config.groundClearance.in(Meters);
+        double staticCompression = (massPerWheel * 9.81) / SUSPENSION_STIFFNESS;
+        double suspensionRestLength = groundClearance + staticCompression;
+
         for (int i = 0; i < moduleTranslations.length; i++) {
             Translation2d moduleOffset = moduleTranslations[i];
             SwerveModuleSimulation module = moduleSimulations[i];
 
             // --- 1. Suspension Calculation ---
-            SuspensionResult suspension =
-                    calculateSuspension(i, pose3d, rotation, moduleOffset, baseDamping, criticalDamping);
+            SuspensionResult suspension = calculateSuspension(
+                    i, pose3d, rotation, moduleOffset, baseDamping, criticalDamping, suspensionRestLength);
             double normalForceN = suspension.normalForceNewtons;
             lastNormalForces[i] = normalForceN;
 
@@ -388,15 +390,21 @@ public class HighFidelitySwerveSim3D extends AbstractDriveTrainSimulation3D {
             Rotation3d rotation,
             Translation2d moduleOffset,
             double baseDamping,
-            double criticalDamping) {
+            double criticalDamping,
+            double suspensionRestLength) {
 
-        Translation3d localMountPoint =
-                new Translation3d(moduleOffset.getX(), moduleOffset.getY(), -CHASSIS_HEIGHT / 2);
+        double chassisHeight = config.chassisHeight.in(Meters);
+        double wheelRadius = config.wheelRadius.in(Meters);
+
+        // Correct for COM offset
+        double groundClearance = config.groundClearance.in(Meters);
+        double mountPointZ = groundClearance - comHeightAboveGround;
+        Translation3d localMountPoint = new Translation3d(moduleOffset.getX(), moduleOffset.getY(), mountPointZ);
         Translation3d worldMountPoint = rotatePoint(localMountPoint, rotation).plus(pose3d.getTranslation());
 
         Translation3d rayDirection = new Translation3d(0, 0, -1);
         Translation3d rayOrigin = worldMountPoint.plus(new Translation3d(0, 0, RAYCAST_ORIGIN_OFFSET));
-        double maxRayDistance = SUSPENSION_REST_LENGTH + 0.1 + WHEEL_RADIUS + RAYCAST_ORIGIN_OFFSET;
+        double maxRayDistance = suspensionRestLength + 0.1 + wheelRadius + RAYCAST_ORIGIN_OFFSET;
 
         Optional<PhysicsEngine.RaycastResult> hit =
                 physicsEngine.raycast(rayOrigin, rayDirection, maxRayDistance, physicsBody);
@@ -407,7 +415,7 @@ public class HighFidelitySwerveSim3D extends AbstractDriveTrainSimulation3D {
         if (hit.isPresent()) {
             PhysicsEngine.RaycastResult hitResult = hit.get();
             double groundDistance = hitResult.hitDistance() - RAYCAST_ORIGIN_OFFSET;
-            double suspensionCompression = SUSPENSION_REST_LENGTH + WHEEL_RADIUS - groundDistance;
+            double suspensionCompression = suspensionRestLength + wheelRadius - groundDistance;
 
             if (suspensionCompression > 0) {
                 Translation3d mountVelocity = physicsBody.getLinearVelocityAtPointMPS(worldMountPoint);
@@ -526,12 +534,11 @@ public class HighFidelitySwerveSim3D extends AbstractDriveTrainSimulation3D {
      * <h2>Registers Physics Calculator for Threaded Mode.</h2>
      */
     private void registerPhysicsCalculator(ThreadedPhysicsProxy proxy) {
-        double robotMassKg = config.robotMass.in(Kilograms);
         double tickPeriodSeconds = arena.getPhysicsTickPeriodSeconds()
                 / org.ironmaple.simulation.SimulatedArena3D.getPhysicsSubTicksPerFrame();
 
-        physicsCalculator = new HighFidelitySwervePhysicsCalculator(
-                physicsBody, moduleTranslations, hifiConfig, tireModel, robotMassKg, tickPeriodSeconds);
+        physicsCalculator =
+                new HighFidelitySwervePhysicsCalculator(physicsBody, config, hifiConfig, tireModel, tickPeriodSeconds);
         proxy.registerCalculator(physicsCalculator);
         calculatorRegistered = true;
     }

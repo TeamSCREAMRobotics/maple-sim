@@ -144,6 +144,16 @@ public class ThreadedJoltBody implements PhysicsBody {
     }
 
     @Override
+    public void setFriction(double friction) {
+        realBody.setFriction(friction);
+    }
+
+    @Override
+    public void setRestitution(double restitution) {
+        realBody.setRestitution(restitution);
+    }
+
+    @Override
     public Translation3d getLinearVelocityAtPointMPS(Translation3d pointWorld) {
         // Calculate from cached state
         Pose3d pose = getPose3d();
@@ -176,5 +186,20 @@ public class ThreadedJoltBody implements PhysicsBody {
     @Override
     public void setDamping(double linearDamping, double angularDamping) {
         proxy.queueBodyDamping(realBody.getTrackingId(), linearDamping, angularDamping);
+    }
+
+    @Override
+    public void setContactReporting(boolean enable) {
+        realBody.setContactReporting(enable);
+    }
+
+    @Override
+    public void setCollisionLayer(int layer) {
+        // Direct call acceptable for now, or queue if thread safety critical for layer
+        // switch
+        // Given Jolt's locking, direct call might be okay if it handles its own locks,
+        // but Jolt generally requires body interface access which is thread-safe.
+        // realBody uses bodyInterface.setObjectLayer which is thread-safe in Jolt.
+        realBody.setCollisionLayer(layer);
     }
 }

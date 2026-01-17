@@ -8,6 +8,7 @@ import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import org.ironmaple.simulation.SimulatedArena3D;
+import org.ironmaple.utils.FieldMirroringUtils;
 
 public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
 
@@ -62,49 +63,52 @@ public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
         Translation2d redHubPos = RebuiltHub.RED_HUB_POS.toTranslation2d();
         addObstacle("meshes/hub.obj", new Pose3d(redHubPos.getX(), redHubPos.getY(), 0, new Rotation3d(0, 0, Math.PI)));
 
-        // Bumps (Cable Protectors?)
-        double bumpOffset = 1.47678149;
-
         // Blue Side Bumps
         // Blue Left (Top): 0 deg (Global Left is +Y)
-        addObstacle(
-                "meshes/bump.obj", new Pose3d(blueHubPos.getX(), blueHubPos.getY() + bumpOffset, 0, new Rotation3d()));
+        addObstacle("meshes/bump.obj", new Pose3d(4.614, 2.505, 0.0, new Rotation3d()));
         // Blue Right (Bottom): 180 deg
-        addObstacle(
-                "meshes/bump.obj",
-                new Pose3d(blueHubPos.getX(), blueHubPos.getY() - bumpOffset, 0, new Rotation3d(0, 0, Math.PI)));
+        addObstacle("meshes/bump.obj", new Pose3d(4.614, FIELD_HEIGHT - 2.505, 0.0, new Rotation3d(0, 0, Math.PI)));
 
-        // Red Side Bumps
         // Red Left (Top?): 180 deg (Global Left is +Y)
+        addObstacle("meshes/bump.obj", new Pose3d(FIELD_WIDTH - 4.614, 2.505, 0.0, new Rotation3d()));
+        // Red Right (Bottom?): 0 deg
+        // Red Side Bumps
         addObstacle(
                 "meshes/bump.obj",
-                new Pose3d(redHubPos.getX(), redHubPos.getY() + bumpOffset, 0, new Rotation3d(0, 0, Math.PI)));
-        // Red Right (Bottom?): 0 deg
-        addObstacle(
-                "meshes/bump.obj", new Pose3d(redHubPos.getX(), redHubPos.getY() - bumpOffset, 0, new Rotation3d()));
+                new Pose3d(FIELD_WIDTH - 4.614, FIELD_HEIGHT - 2.505, 0.0, new Rotation3d(0, 0, Math.PI)));
 
         // Blue Trench Fixed (-Y global relative to Left Bump)
-        addObstacle("meshes/trench_fixed.obj", new Pose3d(blueHubPos.getX(), 1.457137, 0, new Rotation3d()));
+        var trenchX = 4.614;
+        var trenchFixedY = 1.427;
+        var trenchHingedBaseY = 6.638;
+        var trenchHingedArmY = 6.561;
+        var trenchHingedArmZ = 0.619;
+        addObstacle("meshes/trench_fixed.obj", new Pose3d(trenchX, trenchFixedY, 0, new Rotation3d()));
 
         // Blue Trench Hinged (+Y global relative to Right Bump)
-        addObstacle("meshes/trench_hinged.obj", new Pose3d(blueHubPos.getX(), 6.642863, 0, new Rotation3d()));
+        addObstacle("meshes/trench_hinged_base.obj", new Pose3d(trenchX, trenchHingedBaseY, 0, new Rotation3d()));
+        addObstacle(
+                "meshes/trench_hinged_arm.obj",
+                new Pose3d(trenchX, trenchHingedArmY, trenchHingedArmZ, new Rotation3d()));
 
         // Red Trench Fixed (-Y global relative to Left Bump)
-        addObstacle("meshes/trench_fixed.obj", new Pose3d(redHubPos.getX(), 1.457137, 0, new Rotation3d()));
+        addObstacle("meshes/trench_fixed.obj", new Pose3d(FIELD_WIDTH - trenchX, trenchFixedY, 0, new Rotation3d()));
 
         // Red Trench Hinged (+Y global relative to Right Bump)
-        addObstacle("meshes/trench_hinged.obj", new Pose3d(redHubPos.getX(), 6.642863, 0, new Rotation3d()));
+        addObstacle(
+                "meshes/trench_hinged_base.obj",
+                new Pose3d(FIELD_WIDTH - trenchX, trenchHingedBaseY, 0, new Rotation3d()));
+        addObstacle(
+                "meshes/trench_hinged_arm.obj",
+                new Pose3d(FIELD_WIDTH - trenchX, trenchHingedArmY, trenchHingedArmZ, new Rotation3d()));
 
         // TOWERS
+        var blueTowerPose = new Pose3d(0.529, 3.747, 0, new Rotation3d());
+        var redTowerPose = FieldMirroringUtils.flip(blueTowerPose);
         // Blue Tower (0 deg)
-        // User: Y 3.711195 X 0.572294 Z 0, Rotated 180 from previous (PI) -> 0
-        // Wait, current was PI. Rotate 180 -> 2PI -> 0.
-        addObstacle("meshes/tower.obj", new Pose3d(0.572294, 3.711195, 0, new Rotation3d()));
-
+        addObstacle("meshes/tower.obj", blueTowerPose);
         // Red Tower (180 deg)
-        // User: Y 4.288805 X field length (long) - 0.572294 Z 0, Rotated 180 from
-        // previous (0) -> PI
-        addObstacle("meshes/tower.obj", new Pose3d(FIELD_WIDTH - 0.572294, 4.288805, 0, new Rotation3d(0, 0, Math.PI)));
+        addObstacle("meshes/tower.obj", redTowerPose);
     }
 
     public void addObstacle(String meshResourcePath, Pose3d pose) {

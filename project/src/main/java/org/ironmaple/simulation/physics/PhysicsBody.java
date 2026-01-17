@@ -171,5 +171,50 @@ public interface PhysicsBody {
      */
     void setDamping(double linearDamping, double angularDamping);
 
+    /**
+     *
+     *
+     * <h2>Sets the Friction Coefficient.</h2>
+     *
+     * <p>Higher values = more grip.
+     *
+     * @param friction the friction coefficient (typically 0.0 - 1.0+)
+     */
+    void setFriction(double friction);
+
+    /**
+     *
+     *
+     * <h2>Sets the Restitution (Bounciness).</h2>
+     *
+     * <p>0.0 = no bounce, 1.0 = perfect bounce.
+     *
+     * @param restitution the restitution coefficient
+     */
+    void setRestitution(double restitution);
+
     int getBodyId();
+
+    /**
+     *
+     *
+     * <h2>Sets whether this body should report contact events.</h2>
+     *
+     * <p>Used for performance optimization. High-fidelity bodies (Tier 1) should enable this. Bulk/Background bodies
+     * (Tier 2) should disable it.
+     *
+     * @param enable true to enable contact reporting
+     */
+    void setContactReporting(boolean enable);
+
+    /**
+     *
+     *
+     * <h2>Sets the collision layer for this body.</h2>
+     *
+     * <p>Used to control which objects this body collides with.
+     *
+     * @param layer the collision layer index
+     */
+    void setCollisionLayer(int layer);
 }

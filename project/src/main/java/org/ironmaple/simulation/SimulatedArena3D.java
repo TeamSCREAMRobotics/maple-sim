@@ -617,7 +617,7 @@ public abstract class SimulatedArena3D implements Arena {
         PhysicsShape shape = physicsEngine.createBoxShape(new Translation3d(0.1, 0.1, 0.1));
 
         GamePieceOnFieldSimulation3D.GamePieceInfo3D info3d = new GamePieceOnFieldSimulation3D.GamePieceInfo3D(
-                info.type(), shape, info.gamePieceMass(), 0.1, 0.1, 0.5);
+                info.type(), shape, info.gamePieceMass(), 0.8, 0.1, 0.1, 0.5);
 
         GamePieceOnFieldSimulation3D originalPiece = new GamePieceOnFieldSimulation3D(this, info3d, pose);
         originalPiece.getPhysicsBody().setLinearVelocityMPS(velocity);

@@ -237,6 +237,29 @@ public class JoltBody implements PhysicsBody {
         return trackingId;
     }
 
+    @Override
+    public void setFriction(double friction) {
+        bodyInterface.setFriction(body.getId(), (float) friction);
+    }
+
+    @Override
+    public void setRestitution(double restitution) {
+        bodyInterface.setRestitution(body.getId(), (float) restitution);
+    }
+
+    @Override
+    public void setContactReporting(boolean enable) {
+        // Not currently supported by Jolt wrapper in this binding, but we can store it
+        // or
+        // map it to a layer change if needed.
+        // For now, it's a no-op until we implement ContactContactListener.
+    }
+
+    @Override
+    public void setCollisionLayer(int layer) {
+        bodyInterface.setObjectLayer(body.getId(), layer);
+    }
+
     // ========== Conversion Utilities ==========
 
     /** Converts WPILib Translation3d to Jolt Vec3. */

@@ -23,7 +23,7 @@ import org.ironmaple.utils.FieldMirroringUtils;
  */
 public class RebuiltHub extends Goal {
 
-    private static final Translation2d blueHubPose = new Translation2d(4.626, 4.0);
+    private static final Translation2d blueHubPose = new Translation2d(4.61, 4.025);
     private static final Translation2d redHubPose = flip(blueHubPose);
 
     public static final Translation3d BLUE_HUB_POS = new Translation3d(blueHubPose.getX(), blueHubPose.getY(), 1.5748);

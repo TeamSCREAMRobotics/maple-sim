@@ -78,6 +78,48 @@ public class ThreadedPhysicsEngine implements PhysicsEngine {
     }
 
     @Override
+    public PhysicsBody createDynamicBody(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose) {
+        // We need to create the body without adding it to the space immediately (which
+        // is unsafe)
+        PhysicsBody realBody;
+        PhysicsBody wrapperBody;
+
+        if (realEngine instanceof org.ironmaple.simulation.physics.bullet.BulletPhysicsEngine bulletEngine) {
+            realBody = bulletEngine.createDynamicBodyNoAdd(
+                    shape, massKg, friction, restitution, linearDamping, angularDamping, initialPose);
+            wrapperBody = new ThreadedBulletBody((BulletBody) realBody, proxy);
+        } else if (realEngine instanceof org.ironmaple.simulation.physics.jolt.JoltPhysicsEngine joltEngine) {
+            realBody = joltEngine.createDynamicBodyNoAdd(
+                    shape, massKg, friction, restitution, linearDamping, angularDamping, initialPose);
+            wrapperBody = new org.ironmaple.simulation.physics.threading.ThreadedJoltBody(
+                    (org.ironmaple.simulation.physics.jolt.JoltBody) realBody, proxy);
+        } else {
+            // Fallback (unsafe if engine adds immediately)
+            realBody = realEngine.createDynamicBody(
+                    shape, massKg, friction, restitution, linearDamping, angularDamping, initialPose);
+            // We don't have a generic wrapper, so we can't wrap it properly if unknown type
+            // But we can try to wrap it if it implements PhysicsBody, though threading
+            // support might fail
+            return realBody;
+        }
+
+        // Link wrapper to real body for raycast identification
+        realBody.setUserData(wrapperBody);
+
+        // Queue addition of the REAL body
+        proxy.queueBodyAdd(realBody);
+
+        return wrapperBody;
+    }
+
+    @Override
     public PhysicsBody createStaticBody(PhysicsShape shape, Pose3d pose) {
         PhysicsBody realBody;
         PhysicsBody wrapperBody;
@@ -101,6 +143,11 @@ public class ThreadedPhysicsEngine implements PhysicsEngine {
         proxy.queueBodyAdd(realBody);
 
         return wrapperBody;
+    }
+
+    @Override
+    public PhysicsShape createOffsetShape(PhysicsShape shape, Translation3d offset) {
+        return realEngine.createOffsetShape(shape, offset);
     }
 
     @Override

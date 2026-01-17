@@ -34,9 +34,9 @@ public class JoltPhysicsEngine implements PhysicsEngine {
 
     // Collision layers
     private static final int NUM_OBJECT_LAYERS = 3;
-    private static final int OBJ_LAYER_MOVING = 0;
-    private static final int OBJ_LAYER_NON_MOVING = 1;
-    private static final int OBJ_LAYER_RAYCAST = 2; // Layer that ignores MOVING objects
+    public static final int OBJ_LAYER_MOVING = 0;
+    public static final int OBJ_LAYER_NON_MOVING = 1;
+    public static final int OBJ_LAYER_RAYCAST = 2; // Layer that ignores MOVING objects
 
     // Simple CSV Logger
     private static java.io.PrintWriter csvLog;
@@ -226,15 +226,50 @@ public class JoltPhysicsEngine implements PhysicsEngine {
 
     @Override
     public PhysicsBody createDynamicBody(PhysicsShape shape, double massKg, Pose3d initialPose) {
-        return createDynamicBodyInternal(shape, massKg, initialPose, true);
+        // Legacy default: use typical robotics defaults
+        return createDynamicBodyInternal(shape, massKg, 0.8, 0.05, 0.05, 0.05, initialPose, true);
+    }
+
+    @Override
+    public PhysicsBody createDynamicBody(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose) {
+        return createDynamicBodyInternal(
+                shape, massKg, friction, restitution, linearDamping, angularDamping, initialPose, true);
     }
 
     /** Creates a dynamic body without adding it to the physics system. */
     public PhysicsBody createDynamicBodyNoAdd(PhysicsShape shape, double massKg, Pose3d initialPose) {
-        return createDynamicBodyInternal(shape, massKg, initialPose, false);
+        return createDynamicBodyInternal(shape, massKg, 0.8, 0.05, 0.05, 0.05, initialPose, false);
     }
 
-    private PhysicsBody createDynamicBodyInternal(PhysicsShape shape, double massKg, Pose3d initialPose, boolean add) {
+    /** Creates a dynamic body with properties without adding it to the physics system. */
+    public PhysicsBody createDynamicBodyNoAdd(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose) {
+        return createDynamicBodyInternal(
+                shape, massKg, friction, restitution, linearDamping, angularDamping, initialPose, false);
+    }
+
+    private PhysicsBody createDynamicBodyInternal(
+            PhysicsShape shape,
+            double massKg,
+            double friction,
+            double restitution,
+            double linearDamping,
+            double angularDamping,
+            Pose3d initialPose,
+            boolean add) {
         JoltShape joltShape = (JoltShape) shape;
         ConstShape constShape = joltShape.getShape();
 
@@ -244,12 +279,12 @@ public class JoltPhysicsEngine implements PhysicsEngine {
         bcs.setRotation(JoltBody.toQuat(initialPose.getRotation()));
         bcs.setMotionType(EMotionType.Dynamic);
         bcs.setObjectLayer(OBJ_LAYER_MOVING);
-        // Better defaults for robotics (high friction, low bounce, low air drag via
-        // damping)
-        bcs.setFriction(0.8f);
-        bcs.setRestitution(0.05f);
-        bcs.setLinearDamping(0.05f);
-        bcs.setAngularDamping(0.05f);
+
+        // Apply physical properties from arguments
+        bcs.setFriction((float) friction);
+        bcs.setRestitution((float) restitution);
+        bcs.setLinearDamping((float) linearDamping);
+        bcs.setAngularDamping((float) angularDamping);
 
         // Correct mass/inertia if mass override is provided
         if (massKg > 0) {
@@ -385,6 +420,20 @@ public class JoltPhysicsEngine implements PhysicsEngine {
                 (float) halfExtentsMeters.getX(), (float) halfExtentsMeters.getY(), (float) halfExtentsMeters.getZ());
         BoxShape boxShape = new BoxShape(halfExtents);
         return new JoltShape(boxShape, PhysicsShape.ShapeType.BOX);
+    }
+
+    @Override
+    public PhysicsShape createOffsetShape(PhysicsShape shape, Translation3d offset) {
+        JoltShape joltShape = (JoltShape) shape;
+        ConstShape baseShape = joltShape.getShape();
+
+        Vec3 pos = JoltBody.toVec3(offset);
+        Quat rot = Quat.sIdentity();
+
+        RotatedTranslatedShapeSettings settings = new RotatedTranslatedShapeSettings(pos, rot, baseShape);
+        ShapeResult result = settings.create();
+        if (result.hasError()) throw new RuntimeException("Failed to create offset shape: " + result.getError());
+        return new JoltShape(result.get(), PhysicsShape.ShapeType.COMPOUND);
     }
 
     @Override

@@ -44,16 +44,6 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
     protected SimulatedArena3D arena;
 
     /**
-     * Height of the robot chassis BOTTOM above ground at spawn (meters). This should be approximately the suspension
-     * equilibrium height = WHEEL_RADIUS + SUSPENSION_REST_LENGTH ≈ 0.08m. The robot will settle to the correct height
-     * from gravity.
-     */
-    protected double chassisHeightMeters = 0.08;
-
-    /** Height of the robot chassis body/collision box (meters). */
-    protected double chassisBodyHeight = 0.1;
-
-    /**
      *
      *
      * <h2>Creates a 3D Simulation of a Drivetrain.</h2>
@@ -77,6 +67,29 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
      * @param arena the 3D simulation arena
      * @param initialPose the initial 2D pose (converted to 3D with ground height)
      */
+    protected double comHeightAboveGround;
+
+    /**
+     *
+     *
+     * <h2>Gets the Center of Mass Height Above Ground.</h2>
+     *
+     * @return the absolute Z height of the COM when the robot is at rest
+     */
+    public double getComHeightAboveGround() {
+        return comHeightAboveGround;
+    }
+
+    /**
+     *
+     *
+     * <h2>Registers This Drivetrain with a 3D Arena.</h2>
+     *
+     * <p>Must be called after construction to add the drivetrain to the physics world.
+     *
+     * @param arena the 3D simulation arena
+     * @param initialPose the initial 2D pose (converted to 3D with ground height)
+     */
     public void registerWithArena(SimulatedArena3D arena, Pose2d initialPose) {
         this.arena = arena;
         this.physicsEngine = arena.getPhysicsEngine();
@@ -84,14 +97,35 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
         // Create collision shape (box)
         double lengthX = config.bumperLengthX.in(Meters);
         double widthY = config.bumperWidthY.in(Meters);
-        // Robot height in meters is now using class field chassisBodyHeight
+        double chassisBodyHeight = config.chassisHeight.in(Meters);
 
         Translation3d halfExtents = new Translation3d(lengthX / 2, widthY / 2, chassisBodyHeight / 2);
         PhysicsShape shape = physicsEngine.createBoxShape(halfExtents);
 
-        // Create initial 3D pose
+        // Initial height of chassis bottom above ground
+        double spawnGroundClearance = config.groundClearance.in(Meters);
+        // Geometric Center Z (where the box center should be visually)
+        double geometricCenterZ = spawnGroundClearance + chassisBodyHeight / 2;
+
+        // Target Center of Mass Z (from config)
+        double targetComZ = config.centerOfMass.getZ();
+        // If unconfigured (0) or unreasonable, default to geometric center
+        if (targetComZ < 0.01 || targetComZ > 1.0) {
+            targetComZ = geometricCenterZ;
+        }
+
+        // Apply Offset if COM and Geometric Center differ
+        double shapeOffsetZ = geometricCenterZ - targetComZ;
+        if (Math.abs(shapeOffsetZ) > 0.001) {
+            shape = physicsEngine.createOffsetShape(shape, new Translation3d(0, 0, shapeOffsetZ));
+        }
+
+        // Store for getSimulatedDriveTrainPose3dGroundRelative
+        this.comHeightAboveGround = targetComZ;
+
+        // Create initial 3D pose at COM height
         Pose3d pose3d = new Pose3d(
-                new Translation3d(initialPose.getX(), initialPose.getY(), chassisHeightMeters + chassisBodyHeight / 2),
+                new Translation3d(initialPose.getX(), initialPose.getY(), targetComZ),
                 new Rotation3d(0, 0, initialPose.getRotation().getRadians()));
 
         // Create the dynamic body
@@ -176,10 +210,9 @@ public abstract class AbstractDriveTrainSimulation3D implements SimulatedArena3D
     public Pose3d getSimulatedDriveTrainPose3dGroundRelative() {
         if (physicsBody == null) return new Pose3d();
         Pose3d physicsPose = physicsBody.getPose3d();
-        // Subtract the chassis center height above ground
-        // At rest: Z_center = chassisBodyHeight/2 + (wheel radius + suspension)
-        // For visualization, we want the bottom of the robot at Z=0
-        double zOffset = chassisBodyHeight / 2;
+        // Subtract half the chassis height to get the bottom of the chassis
+        // Z_bottom = Z_center - chassis Height / 2
+        double zOffset = config.chassisHeight.in(Meters) / 2;
         return new Pose3d(
                 physicsPose.getX(), physicsPose.getY(), physicsPose.getZ() - zOffset, physicsPose.getRotation());
     }
