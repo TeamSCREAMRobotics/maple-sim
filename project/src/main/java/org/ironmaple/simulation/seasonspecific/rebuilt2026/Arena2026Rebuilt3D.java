@@ -43,7 +43,7 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
     protected RebuiltOutpost redOutpost;
 
     // Field Dimensions
-    private static final double FIELD_WIDTH = 17.548;
+    private static final double FIELD_WIDTH = 16.548;
     private static final double FIELD_HEIGHT = 8.052;
     private Translation2d fuelZoneCenter = new Translation2d(FIELD_WIDTH / 2, FIELD_HEIGHT / 2);
     private int neutralFuelCount = 408;
@@ -180,8 +180,7 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
                 0.1 // restitution
                 );
 
-        while (added < neutralFuelCount && piecesAvailable) {
-            piecesAvailable = false;
+        while (added < neutralFuelCount) {
             for (int i = 0; i < 4; i++) {
                 if (added >= neutralFuelCount) break;
 
@@ -212,8 +211,8 @@ public class Arena2026Rebuilt3D extends SimulatedArena3D implements Arena2026 {
                     dynamicBodies.put(piece, piece.getPhysicsBody());
 
                     indices[i]++;
+                    System.out.println("Adding to added");
                     added++;
-                    piecesAvailable = true;
                 }
             }
         }

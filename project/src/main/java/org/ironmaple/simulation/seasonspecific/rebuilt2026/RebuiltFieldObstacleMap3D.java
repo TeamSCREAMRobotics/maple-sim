@@ -28,7 +28,7 @@ public class RebuiltFieldObstacleMap3D extends SimulatedArena3D.FieldMap3D {
 
         // Floor (Ground)
         // Create a large box for the floor, positioned so its top surface is at Z=0
-        double floorThickness = 1.0;
+        double floorThickness = 50.0;
         this.addBox(
                 new Translation3d(FIELD_WIDTH * 1.5 / 2, FIELD_HEIGHT * 1.5 / 2, floorThickness / 2),
                 new Pose3d(FIELD_WIDTH / 2, FIELD_HEIGHT / 2, -floorThickness / 2, new Rotation3d()));
