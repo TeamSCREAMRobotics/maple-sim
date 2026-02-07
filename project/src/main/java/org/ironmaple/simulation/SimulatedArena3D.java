@@ -26,6 +26,8 @@ import org.ironmaple.simulation.physics.PhysicsBody;
 import org.ironmaple.simulation.physics.PhysicsEngine;
 import org.ironmaple.simulation.physics.PhysicsShape;
 import org.ironmaple.simulation.physics.threading.PhysicsThreadConfig;
+import org.ironmaple.simulation.seasonspecific.rebuilt2026.Arena2026Rebuilt;
+import org.ironmaple.simulation.seasonspecific.rebuilt2026.Arena2026Rebuilt3D;
 
 /**
  *
@@ -687,6 +689,14 @@ public abstract class SimulatedArena3D implements Arena {
             }
         }
         return pieces;
+    }
+
+
+    //Sets the Neutral Zone Fuel Count for the simulated REBUILT field
+    //DOES NOTHING ON OTHER FIELDS
+    //Useful if the simulated arena lags from too many physics objects
+    public void setNeutralFuelCount(int fuelCount){
+        Arena2026Rebuilt3D.getInstance().setNeutralFuelCount(fuelCount);
     }
 
     @Override
