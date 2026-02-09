@@ -331,8 +331,8 @@ public abstract class SimulatedArena3D implements Arena {
     /*Sets the instance for the simulated Arena
      * Is required before calling the instance of the simulated Arena
      */
-    public void setInstance(SimulatedArena3D arena){
-        this.instance = arena;
+    public static void setInstance(SimulatedArena3D arena){
+        instance = arena;
     }
 
     /**
