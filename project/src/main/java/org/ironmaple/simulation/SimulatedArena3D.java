@@ -327,6 +327,14 @@ public abstract class SimulatedArena3D implements Arena {
         SIMULATION_DT = robotPeriod.div(SIMULATION_SUB_TICKS_IN_1_PERIOD);
     }
 
+
+    /*Sets the instance for the simulated Arena
+     * Is required before calling the instance of the simulated Arena
+     */
+    public void setInstance(SimulatedArena3D arena){
+        this.instance = arena;
+    }
+
     /**
      *
      *
