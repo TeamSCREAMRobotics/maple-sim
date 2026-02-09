@@ -1,29 +1,96 @@
-name: ci 
+name: Publish Vendor Dependency
+
 on:
   push:
-    branches:
-      - main
+    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
+
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Configure Git Credentials
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV 
-      - uses: actions/cache@v4
-        with:
-          key: mkdocs-material-${{ env.cache_id }}
-          path: .cache
-          restore-keys: |
-            mkdocs-material-
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Make gradlew executable
+      run: chmod +x gradlew
+      
+    - name: Build with Gradle
+      run: ./gradlew build
+      
+    - name: Publish to local repo
+      run: ./gradlew publish
+      
+    - name: Prepare GitHub Pages content
+      run: |
+        mkdir -p public
+        cp -r vendordeps/* public/ || true
+        cp -r build/repo/* public/ || true
+        echo "<h1>maplesim Vendor Dependency</h1>" > public/index.html
+        echo "<p>Available at: <a href='maplesim.json'>maplesim.json</a></p>" >> public/index.html
+        
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+      
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v4
+      with:
+        path: ./public
 
-      - run: pip install mkdocs-material 
-      - run: mkdocs gh-deploy --force
+  deploy:
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+        packages: write
+        contents: write
+        id-token: write
+        pages: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Get Gradle Version Variable
+        id: get_gradle_var
+        run: |
+          ./gradlew printGradleVariable
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.get_gradle_var.outputs.gradle_var }}
+          name: Release ${{ steps.get_gradle_var.outputs.gradle_var }}
+          bodyFile: ".github/release_body.md"
+          artifacts: "vendordeps/maplesim.json"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
