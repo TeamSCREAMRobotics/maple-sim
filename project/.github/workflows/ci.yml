@@ -1,114 +1,96 @@
-name: CI
+name: Publish Vendor Dependency
 
 on:
-  release:
-    types: [created]
+  push:
+    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-  build-docker:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - container: wpilib/roborio-cross-ubuntu:2024-22.04
-            artifact-name: Athena
-            build-options: "-Ponlylinuxathena"
-          - container: wpilib/raspbian-cross-ubuntu:bullseye-22.04
-            artifact-name: Arm32
-            build-options: "-Ponlylinuxarm32"
-          - container: wpilib/aarch64-cross-ubuntu:bullseye-22.04
-            artifact-name: Arm64
-            build-options: "-Ponlylinuxarm64"
-          - container: wpilib/ubuntu-base:22.04
-            artifact-name: Linux
-            build-options: ""
-    name: "Build - ${{ matrix.artifact-name }}"
+  build:
     runs-on: ubuntu-latest
-    container: ${{ matrix.container }}
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Make gradlew executable
+      run: chmod +x gradlew
+      
+    - name: Build with Gradle
+      run: ./gradlew build
+      
+    - name: Publish to local repo
+      run: ./gradlew publish
+      
+    - name: Prepare GitHub Pages content
+      run: |
+        mkdir -p public
+        cp -r vendordeps/* public/ || true
+        cp -r build/repo/* public/ || true
+        echo "<h1>maple-sim Vendor Dependency</h1>" > public/index.html
+        echo "<p>Available at: <a href='maple-sim.json'>maple-sim.json</a></p>" >> public/index.html
+        
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+      
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v4
+      with:
+        path: ./public
+
+  deploy:
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+        packages: write
+        contents: write
+        id-token: write
+        pages: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          submodules: true
-          fetch-depth: 0
-      - name: Fetch all history and metadata
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Get Gradle Version Variable
+        id: get_gradle_var
         run: |
-          git config --global --add safe.directory /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}
-      - name: Build with Gradle
-        run: ./gradlew build ${{ matrix.build-options }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact-name }}
-          path: build/allOutputs
+          ./gradlew printGradleVariable
 
-  build-host:
-    env: 
-      MACOSX_DEPLOYMENT_TARGET: 13
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-2022
-            artifact-name: Win64
-            architecture: x64
-          - os: macos-14
-            artifact-name: macOS
-            architecture: x64
-    name: "Build - ${{ matrix.artifact-name }}"
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
+      - name: Create Release
+        uses: ncipollo/release-action@v1
         with:
-          submodules: true
-      - name: Fetch all history and metadata
-        run: git fetch --prune --unshallow
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 17
-          architecture: ${{ matrix.architecture }}
-      - name: Build with Gradle
-        run: ./gradlew build -Pbuildalldesktop
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact-name }}
-          path: build/allOutputs
-
-  combine:
-    name: Combine
-    needs: [build-docker, build-host]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: wpilibsuite/build-tools
-      - uses: actions/download-artifact@v4
-        with:
-          path: combiner/products/build/allOutputs
-      - name: Flatten Artifacts
-        run: rsync -a --delete combiner/products/build/allOutputs/*/* combiner/products/build/allOutputs/
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 17
-      - name: Combine
-        # if: |
-        #   !startsWith(github.ref, 'refs/tags/v')
-        run: ./gradlew publish -Pthirdparty
-      - name: Publish Javadocs
-        run: ./gradlew javadocs
-        working-directory: combiner
-      # - name: Combine (Release)
-      #   if: |
-      #     github.repository_owner == 'wpilibsuite' &&
-      #     startsWith(github.ref, 'refs/tags/v')
-      #   run: |
-      #     ./gradlew publish -Pthirdparty
-      #   working-directory: combiner
-      #   env:
-      #     RUN_AZURE_ARTIFACTORY_RELEASE: 'TRUE'
-      #     ARTIFACTORY_PUBLISH_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
-      #     ARTIFACTORY_PUBLISH_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Maven
-          path: ~/releases
+          tag: ${{ steps.get_gradle_var.outputs.gradle_var }}
+          name: Release ${{ steps.get_gradle_var.outputs.gradle_var }}
+          bodyFile: ".github/release_body.md"
+          artifacts: "project/maple-sim.json"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
